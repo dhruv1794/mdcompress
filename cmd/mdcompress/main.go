@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -148,6 +149,7 @@ func evalCommand() *cobra.Command {
 	var backendName string
 	var model string
 	var endpoint string
+	var apiKeyEnv string
 	var questions int
 	var threshold float64
 	var seeds int
@@ -155,18 +157,53 @@ func evalCommand() *cobra.Command {
 	var markdownOut string
 
 	cmd := &cobra.Command{
-		Use:   "eval",
+		Use:   "eval [--repo=<path>] [--rule=<name>]",
 		Short: "Evaluate compressed markdown faithfulness",
-		Args:  cobra.NoArgs,
+		Long: `Evaluate whether compressed markdown preserves factual content.
+
+The command generates factual questions from each markdown file, answers them
+against the original and compressed versions, then asks the configured judge
+backend to score answer equivalence. Ollama is the default local backend.
+
+Use --rule to isolate one registered rule by disabling all others for the run.`,
+		Example: `  mdcompress eval --repo=.
+  mdcompress eval --repo=docs --rule=strip-toc
+  mdcompress eval --backend=ollama --model=llama3.1:8b --questions=10 --seeds=3
+  mdcompress eval --backend=openai --model=gpt-4o-mini --api-key-env=OPENAI_API_KEY`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			evalCfg := readEvalConfig(".mdcompress/config.yaml")
+			flags := cmd.Flags()
+			if !flags.Changed("backend") {
+				backendName = evalCfg.Backend
+			}
+			if !flags.Changed("model") {
+				model = evalCfg.Model
+			}
+			if !flags.Changed("endpoint") {
+				endpoint = evalCfg.Endpoint
+			}
+			if !flags.Changed("api-key-env") {
+				apiKeyEnv = evalCfg.APIKeyEnv
+			}
+			if !flags.Changed("questions") {
+				questions = evalCfg.QuestionsPerDoc
+			}
+			if !flags.Changed("threshold") {
+				threshold = evalCfg.Threshold
+			}
+			if !flags.Changed("seeds") {
+				seeds = evalCfg.Seeds
+			}
 			parsedTier, err := compress.ParseTier(tier)
 			if err != nil {
 				return err
 			}
-			backend, err := evalBackend(backendName, endpoint, model)
+			backend, err := evalBackend(backendName, endpoint, model, apiKeyEnv)
 			if err != nil {
 				return err
 			}
+			model = resolvedEvalModel(backendName, model)
 			report, err := mdeval.Run(mdeval.Options{
 				Repo:            repo,
 				Rule:            rule,
@@ -205,24 +242,114 @@ func evalCommand() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", ".", "repository or directory to evaluate")
 	cmd.Flags().StringVar(&rule, "rule", "", "evaluate a single rule by disabling all other registered rules")
 	cmd.Flags().StringVar(&tier, "tier", compress.TierSafe.String(), "compression tier: safe, aggressive, llm")
-	cmd.Flags().StringVar(&backendName, "backend", mdeval.DefaultBackend, "LLM backend: ollama")
-	cmd.Flags().StringVar(&model, "model", mdeval.DefaultModel, "LLM model name")
-	cmd.Flags().StringVar(&endpoint, "endpoint", "", "LLM backend endpoint (default: http://localhost:11434 for Ollama)")
-	cmd.Flags().IntVar(&questions, "questions", mdeval.DefaultQuestionsPerDoc, "factual questions to generate per markdown file")
-	cmd.Flags().Float64Var(&threshold, "threshold", mdeval.DefaultThreshold, "minimum passing average faithfulness score")
-	cmd.Flags().IntVar(&seeds, "seeds", mdeval.DefaultSeeds, "number of question-generation passes per file")
+	cmd.Flags().StringVar(&backendName, "backend", "", "LLM backend: ollama, anthropic, openai")
+	cmd.Flags().StringVar(&model, "model", "", "LLM model name")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "LLM backend endpoint")
+	cmd.Flags().StringVar(&apiKeyEnv, "api-key-env", "", "environment variable containing the backend API key")
+	cmd.Flags().IntVar(&questions, "questions", 0, "factual questions to generate per markdown file")
+	cmd.Flags().Float64Var(&threshold, "threshold", 0, "minimum passing average faithfulness score")
+	cmd.Flags().IntVar(&seeds, "seeds", 0, "number of question-generation passes per file")
 	cmd.Flags().StringVar(&jsonOut, "json-out", "", "write JSON report to this path")
 	cmd.Flags().StringVar(&markdownOut, "markdown-out", "", "write markdown report to this path")
 	return cmd
 }
 
-func evalBackend(name, endpoint, model string) (mdeval.Backend, error) {
+func evalBackend(name, endpoint, model, apiKeyEnv string) (mdeval.Backend, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "", mdeval.DefaultBackend:
 		return mdeval.NewOllamaBackend(endpoint, model), nil
+	case mdeval.AnthropicBackendName:
+		if strings.TrimSpace(model) == "" || strings.TrimSpace(model) == mdeval.DefaultModel {
+			return nil, fmt.Errorf("anthropic eval backend requires --model or eval.model")
+		}
+		return mdeval.NewAnthropicBackend(endpoint, model, apiKeyEnv), nil
+	case mdeval.OpenAIBackendName:
+		if strings.TrimSpace(model) == "" || strings.TrimSpace(model) == mdeval.DefaultModel {
+			return nil, fmt.Errorf("openai eval backend requires --model or eval.model")
+		}
+		return mdeval.NewOpenAIBackend(endpoint, model, apiKeyEnv), nil
 	default:
 		return nil, fmt.Errorf("unsupported eval backend %q", name)
 	}
+}
+
+func resolvedEvalModel(backendName, model string) string {
+	if strings.TrimSpace(model) != "" {
+		return strings.TrimSpace(model)
+	}
+	if strings.TrimSpace(backendName) == "" || strings.EqualFold(strings.TrimSpace(backendName), mdeval.DefaultBackend) {
+		return mdeval.DefaultModel
+	}
+	return ""
+}
+
+type evalConfig struct {
+	Backend         string
+	Model           string
+	Endpoint        string
+	APIKeyEnv       string
+	Threshold       float64
+	QuestionsPerDoc int
+	Seeds           int
+}
+
+func readEvalConfig(path string) evalConfig {
+	cfg := evalConfig{
+		Backend:         mdeval.DefaultBackend,
+		Threshold:       mdeval.DefaultThreshold,
+		QuestionsPerDoc: mdeval.DefaultQuestionsPerDoc,
+		Seeds:           mdeval.DefaultSeeds,
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return cfg
+	}
+
+	inEval := false
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		indented := strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
+		trimmed := strings.TrimSpace(line)
+		if !inEval {
+			if trimmed == "eval:" {
+				inEval = true
+			}
+			continue
+		}
+		if !indented {
+			break
+		}
+		key, value, ok := strings.Cut(trimmed, ":")
+		if !ok {
+			continue
+		}
+		value = strings.Trim(strings.TrimSpace(value), `"'`)
+		switch strings.TrimSpace(key) {
+		case "backend":
+			cfg.Backend = value
+		case "model":
+			cfg.Model = value
+		case "endpoint":
+			cfg.Endpoint = value
+		case "api_key_env":
+			cfg.APIKeyEnv = value
+		case "threshold":
+			if parsed, err := strconv.ParseFloat(value, 64); err == nil {
+				cfg.Threshold = parsed
+			}
+		case "questions_per_doc":
+			if parsed, err := strconv.Atoi(value); err == nil {
+				cfg.QuestionsPerDoc = parsed
+			}
+		case "seeds":
+			if parsed, err := strconv.Atoi(value); err == nil {
+				cfg.Seeds = parsed
+			}
+		}
+	}
+	return cfg
 }
 
 func writeEvalJSON(path string, report mdeval.Report) error {
@@ -1669,4 +1796,10 @@ tokens:
 hooks:
   pre_commit: true
   post_merge: true
+eval:
+  backend: ollama
+  model: llama3.1:8b
+  threshold: 0.95
+  questions_per_doc: 10
+  seeds: 1
 `
