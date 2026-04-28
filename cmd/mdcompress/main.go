@@ -14,6 +14,7 @@ import (
 	assets "github.com/dhruv1794/mdcompress/internal"
 	mdcache "github.com/dhruv1794/mdcompress/pkg/cache"
 	"github.com/dhruv1794/mdcompress/pkg/compress"
+	mdeval "github.com/dhruv1794/mdcompress/pkg/eval"
 	"github.com/dhruv1794/mdcompress/pkg/manifest"
 	"github.com/spf13/cobra"
 )
@@ -32,6 +33,7 @@ func main() {
 	root.AddCommand(compressCommand())
 	root.AddCommand(runCommand())
 	root.AddCommand(statusCommand())
+	root.AddCommand(evalCommand())
 	root.AddCommand(doctorCommand())
 	root.AddCommand(cleanCommand())
 	root.AddCommand(initCommand())
@@ -48,6 +50,7 @@ func runCommand() *cobra.Command {
 	var all bool
 	var staged bool
 	var changed bool
+	var noStaleCheck bool
 	var quiet bool
 	var disabledRules []string
 	var tier string
@@ -62,10 +65,11 @@ func runCommand() *cobra.Command {
 				return err
 			}
 			summary, err := runMarkdown(runOptions{
-				Args:    args,
-				All:     all,
-				Staged:  staged,
-				Changed: changed,
+				Args:         args,
+				All:          all,
+				Staged:       staged,
+				Changed:      changed,
+				NoStaleCheck: noStaleCheck,
 				Compress: compress.Options{
 					Tier:          parsedTier,
 					DisabledRules: disabledRules,
@@ -85,6 +89,7 @@ func runCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "force rebuild of all selected markdown files")
 	cmd.Flags().BoolVar(&staged, "staged", false, "compress staged markdown files from the git index")
 	cmd.Flags().BoolVar(&changed, "changed", false, "compress markdown files changed by the last merge")
+	cmd.Flags().BoolVar(&noStaleCheck, "no-stale-check", false, "when run without paths, skip automatic stale cache refresh")
 	cmd.Flags().BoolVar(&quiet, "quiet", false, "suppress non-error output")
 	cmd.Flags().StringVar(&tier, "tier", compress.TierSafe.String(), "compression tier: safe, aggressive, llm")
 	cmd.Flags().StringSliceVar(&disabledRules, "disable-rule", nil, "rule to disable; may be repeated")
@@ -101,21 +106,147 @@ func statusCommand() *cobra.Command {
 				return err
 			}
 
-			stale := staleEntries(m)
-			fmt.Fprintf(cmd.OutOrStdout(), "files tracked: %d\n", m.Totals.Files)
-			fmt.Fprintf(cmd.OutOrStdout(), "tokens before: %d\n", m.Totals.TokensBefore)
-			fmt.Fprintf(cmd.OutOrStdout(), "tokens after: %d\n", m.Totals.TokensAfter)
-			fmt.Fprintf(cmd.OutOrStdout(), "tokens saved: %d\n", m.Totals.TokensSaved)
-			fmt.Fprintf(cmd.OutOrStdout(), "stale entries: %d\n", len(stale))
-			if len(stale) > 0 {
-				sort.Strings(stale)
-				for _, source := range stale {
-					fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", source)
+			tier := currentTier()
+			freshness := cacheFreshness(m)
+			savedPercent := percentSaved(m.Totals.TokensBefore, m.Totals.TokensSaved)
+			savedCost := sonnetInputSavingsUSD(m.Totals.TokensSaved)
+
+			fmt.Fprintf(cmd.OutOrStdout(), "Repo: %s\n", repoLabel())
+			fmt.Fprintf(cmd.OutOrStdout(), "Tier: %s\n", tier)
+			fmt.Fprintf(cmd.OutOrStdout(), "Files tracked: %s\n", formatInt(m.Totals.Files))
+			fmt.Fprintf(cmd.OutOrStdout(), "Cache: %s fresh, %s stale, %s missing\n", formatInt(freshness.Fresh), formatInt(freshness.Stale), formatInt(freshness.Missing))
+			fmt.Fprintln(cmd.OutOrStdout())
+			fmt.Fprintf(cmd.OutOrStdout(), "Tokens before: %s\n", formatInt(m.Totals.TokensBefore))
+			fmt.Fprintf(cmd.OutOrStdout(), "Tokens after:  %s\n", formatInt(m.Totals.TokensAfter))
+			fmt.Fprintf(cmd.OutOrStdout(), "Saved:         %s (%.1f%%)\n", formatInt(m.Totals.TokensSaved), savedPercent)
+			fmt.Fprintln(cmd.OutOrStdout())
+			fmt.Fprintln(cmd.OutOrStdout(), "ROI estimate (Claude Sonnet input pricing, $3.00/MTok):")
+			fmt.Fprintf(cmd.OutOrStdout(), "  Per full-cache read: ~$%.4f\n", savedCost)
+			fmt.Fprintf(cmd.OutOrStdout(), "  Local manifest total: ~$%.4f\n", savedCost)
+
+			top := topSavings(m, 10)
+			if len(top) > 0 {
+				fmt.Fprintln(cmd.OutOrStdout())
+				fmt.Fprintln(cmd.OutOrStdout(), "Top savings:")
+				for _, entry := range top {
+					saved := entry.TokensBefore - entry.TokensAfter
+					fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %s saved (%.1f%%)\n", entry.Source, formatInt(saved), percentSaved(entry.TokensBefore, saved))
 				}
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout())
+			fmt.Fprintln(cmd.OutOrStdout(), "Note: .mdcompress/manifest.json is gitignored, so local manifest totals are per clone, not shared team-wide.")
+			return nil
+		},
+	}
+}
+
+func evalCommand() *cobra.Command {
+	var repo string
+	var rule string
+	var tier string
+	var backendName string
+	var model string
+	var endpoint string
+	var questions int
+	var threshold float64
+	var seeds int
+	var jsonOut string
+	var markdownOut string
+
+	cmd := &cobra.Command{
+		Use:   "eval",
+		Short: "Evaluate compressed markdown faithfulness",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			parsedTier, err := compress.ParseTier(tier)
+			if err != nil {
+				return err
+			}
+			backend, err := evalBackend(backendName, endpoint, model)
+			if err != nil {
+				return err
+			}
+			report, err := mdeval.Run(mdeval.Options{
+				Repo:            repo,
+				Rule:            rule,
+				Tier:            parsedTier,
+				QuestionsPerDoc: questions,
+				Threshold:       threshold,
+				Seeds:           seeds,
+				Backend:         backend,
+				Model:           model,
+			})
+			if err != nil {
+				return err
+			}
+			if markdownOut != "" {
+				if err := writeEvalMarkdown(markdownOut, report); err != nil {
+					return err
+				}
+			}
+			if jsonOut != "" {
+				if err := writeEvalJSON(jsonOut, report); err != nil {
+					return err
+				}
+			}
+			if markdownOut == "" && jsonOut == "" {
+				if err := mdeval.WriteMarkdown(cmd.OutOrStdout(), report); err != nil {
+					return err
+				}
+			}
+			if !report.Passed {
+				return fmt.Errorf("faithfulness score %.3f is below threshold %.3f", report.AverageScore, report.Threshold)
 			}
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&repo, "repo", ".", "repository or directory to evaluate")
+	cmd.Flags().StringVar(&rule, "rule", "", "evaluate a single rule by disabling all other registered rules")
+	cmd.Flags().StringVar(&tier, "tier", compress.TierSafe.String(), "compression tier: safe, aggressive, llm")
+	cmd.Flags().StringVar(&backendName, "backend", mdeval.DefaultBackend, "LLM backend: ollama")
+	cmd.Flags().StringVar(&model, "model", mdeval.DefaultModel, "LLM model name")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "LLM backend endpoint (default: http://localhost:11434 for Ollama)")
+	cmd.Flags().IntVar(&questions, "questions", mdeval.DefaultQuestionsPerDoc, "factual questions to generate per markdown file")
+	cmd.Flags().Float64Var(&threshold, "threshold", mdeval.DefaultThreshold, "minimum passing average faithfulness score")
+	cmd.Flags().IntVar(&seeds, "seeds", mdeval.DefaultSeeds, "number of question-generation passes per file")
+	cmd.Flags().StringVar(&jsonOut, "json-out", "", "write JSON report to this path")
+	cmd.Flags().StringVar(&markdownOut, "markdown-out", "", "write markdown report to this path")
+	return cmd
+}
+
+func evalBackend(name, endpoint, model string) (mdeval.Backend, error) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "", mdeval.DefaultBackend:
+		return mdeval.NewOllamaBackend(endpoint, model), nil
+	default:
+		return nil, fmt.Errorf("unsupported eval backend %q", name)
+	}
+}
+
+func writeEvalJSON(path string, report mdeval.Report) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil && filepath.Dir(path) != "." {
+		return err
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return mdeval.WriteJSON(file, report)
+}
+
+func writeEvalMarkdown(path string, report mdeval.Report) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil && filepath.Dir(path) != "." {
+		return err
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return mdeval.WriteMarkdown(file, report)
 }
 
 func doctorCommand() *cobra.Command {
@@ -335,11 +466,12 @@ func readInput(args []string) ([]byte, error) {
 }
 
 type runOptions struct {
-	Args     []string
-	All      bool
-	Staged   bool
-	Changed  bool
-	Compress compress.Options
+	Args         []string
+	All          bool
+	Staged       bool
+	Changed      bool
+	NoStaleCheck bool
+	Compress     compress.Options
 }
 
 type runSummary struct {
@@ -368,7 +500,7 @@ func runMarkdown(opts runOptions) (runSummary, error) {
 	for _, input := range inputs {
 		sha := mdcache.SourceSHA(input.Content)
 		entry, ok := m.Entries[input.Rel]
-		if !opts.All && ok && entry.SHA256 == sha && mdcache.Exists(entry.Cache) {
+		if !opts.All && ok && freshManifestEntry(input.Path, entry, sha, !opts.Staged) {
 			summary.Skipped++
 			continue
 		}
@@ -393,9 +525,12 @@ func runMarkdown(opts runOptions) (runSummary, error) {
 		summary.Compressed++
 	}
 
-	if err := manifest.Write(manifest.DefaultPath, m); err != nil {
-		return summary, err
+	if summary.Compressed > 0 {
+		if err := manifest.Write(manifest.DefaultPath, m); err != nil {
+			return summary, err
+		}
 	}
+	m.RecalculateTotals()
 	summary.TokensSaved = m.Totals.TokensSaved
 	return summary, nil
 }
@@ -406,6 +541,9 @@ func markdownInputs(opts runOptions) ([]markdownInput, error) {
 	}
 	if (opts.Staged || opts.Changed) && len(opts.Args) > 0 {
 		return nil, fmt.Errorf("--staged and --changed do not accept path arguments")
+	}
+	if opts.NoStaleCheck && !opts.All && !opts.Staged && !opts.Changed && len(opts.Args) == 0 {
+		return nil, nil
 	}
 	if opts.Staged {
 		paths, err := gitMarkdownPaths("diff", "--cached", "--name-only", "--diff-filter=ACM")
@@ -540,6 +678,21 @@ func isMarkdownPath(path string) bool {
 	return strings.EqualFold(filepath.Ext(path), ".md")
 }
 
+func freshManifestEntry(sourcePath string, entry manifest.Entry, sourceSHA string, checkMTime bool) bool {
+	if entry.SHA256 != sourceSHA || !mdcache.Exists(entry.Cache) {
+		return false
+	}
+	if !checkMTime {
+		return true
+	}
+	sourceInfo, sourceErr := os.Stat(sourcePath)
+	cacheInfo, cacheErr := os.Stat(entry.Cache)
+	if sourceErr != nil || cacheErr != nil {
+		return false
+	}
+	return !sourceInfo.ModTime().After(cacheInfo.ModTime())
+}
+
 func excludedPath(path string) bool {
 	slash := filepath.ToSlash(filepath.Clean(path))
 	if slash == "." {
@@ -567,11 +720,144 @@ func staleEntries(m *manifest.Manifest) []string {
 			stale = append(stale, source)
 			continue
 		}
-		if mdcache.SourceSHA(content) != entry.SHA256 || !mdcache.Exists(entry.Cache) {
+		if !freshManifestEntry(source, entry, mdcache.SourceSHA(content), true) {
 			stale = append(stale, source)
 		}
 	}
 	return stale
+}
+
+type freshnessSummary struct {
+	Fresh   int
+	Stale   int
+	Missing int
+}
+
+const claudeSonnetInputUSDPerMTok = 3.0
+
+func cacheFreshness(m *manifest.Manifest) freshnessSummary {
+	paths, err := markdownPaths([]string{"."})
+	if err != nil {
+		return freshnessSummary{Stale: len(m.Entries)}
+	}
+
+	var summary freshnessSummary
+	seen := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		rel, err := filepath.Rel(".", path)
+		if err != nil {
+			summary.Stale++
+			continue
+		}
+		rel = filepath.ToSlash(rel)
+		seen[rel] = true
+
+		entry, ok := m.Entries[rel]
+		if !ok || !mdcache.Exists(entry.Cache) {
+			summary.Missing++
+			continue
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			summary.Stale++
+			continue
+		}
+		if !freshManifestEntry(path, entry, mdcache.SourceSHA(content), true) {
+			summary.Stale++
+			continue
+		}
+		summary.Fresh++
+	}
+
+	for source := range m.Entries {
+		if !seen[source] {
+			summary.Stale++
+		}
+	}
+	return summary
+}
+
+func topSavings(m *manifest.Manifest, limit int) []manifest.Entry {
+	entries := make([]manifest.Entry, 0, len(m.Entries))
+	for _, entry := range m.Entries {
+		if entry.TokensBefore <= entry.TokensAfter {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		left := entries[i].TokensBefore - entries[i].TokensAfter
+		right := entries[j].TokensBefore - entries[j].TokensAfter
+		if left == right {
+			return entries[i].Source < entries[j].Source
+		}
+		return left > right
+	})
+	if limit > 0 && len(entries) > limit {
+		return entries[:limit]
+	}
+	return entries
+}
+
+func percentSaved(before, saved int) float64 {
+	if before <= 0 {
+		return 0
+	}
+	return float64(saved) / float64(before) * 100
+}
+
+func sonnetInputSavingsUSD(tokensSaved int) float64 {
+	return float64(tokensSaved) / 1_000_000 * claudeSonnetInputUSDPerMTok
+}
+
+func formatInt(value int) string {
+	if value == 0 {
+		return "0"
+	}
+	sign := ""
+	if value < 0 {
+		sign = "-"
+		value = -value
+	}
+	digits := fmt.Sprintf("%d", value)
+	firstGroup := len(digits) % 3
+	if firstGroup == 0 {
+		firstGroup = 3
+	}
+	var b strings.Builder
+	b.WriteString(sign)
+	b.WriteString(digits[:firstGroup])
+	for i := firstGroup; i < len(digits); i += 3 {
+		b.WriteByte(',')
+		b.WriteString(digits[i : i+3])
+	}
+	return b.String()
+}
+
+func currentTier() string {
+	data, err := os.ReadFile(".mdcompress/config.yaml")
+	if err != nil {
+		return compress.TierSafe.String()
+	}
+	tier := configTier(string(data))
+	if _, err := compress.ParseTier(tier); err != nil {
+		return "invalid (" + tier + ")"
+	}
+	return tier
+}
+
+func repoLabel() string {
+	if output, err := gitOutput("remote", "get-url", "origin"); err == nil {
+		if remote := strings.TrimSpace(string(output)); remote != "" {
+			return remote
+		}
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return "unknown"
+	}
+	return filepath.Base(dir)
 }
 
 const (
@@ -806,10 +1092,7 @@ func checkCacheFreshness() doctorCheck {
 			stale = append(stale, rel)
 			continue
 		}
-		cacheInfo, cacheErr := os.Stat(entry.Cache)
-		sourceInfo, sourceErr := os.Stat(path)
-		mtimeStale := cacheErr != nil || sourceErr == nil && sourceInfo.ModTime().After(cacheInfo.ModTime())
-		if mdcache.SourceSHA(content) != entry.SHA256 || mtimeStale {
+		if !freshManifestEntry(path, entry, mdcache.SourceSHA(content), true) {
 			stale = append(stale, rel)
 		}
 	}
