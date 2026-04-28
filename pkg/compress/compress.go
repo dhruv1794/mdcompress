@@ -1,0 +1,62 @@
+// Package compress exposes the public markdown compression API.
+package compress
+
+import (
+	"github.com/dhruv1794/mdcompress/pkg/parser"
+	"github.com/dhruv1794/mdcompress/pkg/render"
+	"github.com/dhruv1794/mdcompress/pkg/rules"
+	"github.com/dhruv1794/mdcompress/pkg/tokens"
+)
+
+// Compress runs the configured rule tier against markdown content.
+func Compress(content []byte, opts Options) (Result, error) {
+	tier := opts.Tier
+	if tier == 0 {
+		tier = TierSafe
+	}
+
+	output := content
+	rulesFired := make(map[string]int)
+	disabled := disabledRuleSet(opts.DisabledRules)
+	doc, err := parser.Parse(output)
+	if err != nil {
+		return Result{}, err
+	}
+	for _, rule := range rules.RulesForTier(rules.Tier(tier)) {
+		if disabled[rule.Name()] {
+			continue
+		}
+		ctx := &rules.Context{
+			Source: output,
+			Config: &rules.Config{
+				Tier:     rules.Tier(tier),
+				Disabled: disabled,
+			},
+		}
+		changeSet, err := rule.Apply(doc, ctx)
+		if err != nil {
+			continue
+		}
+		if changeSet.Stats.NodesAffected > 0 {
+			rulesFired[rule.Name()] = changeSet.Stats.NodesAffected
+		}
+		output = render.Splice(output, changeSet.Ranges)
+	}
+
+	return Result{
+		Output:       output,
+		TokensBefore: tokens.Count(content),
+		TokensAfter:  tokens.Count(output),
+		BytesBefore:  len(content),
+		BytesAfter:   len(output),
+		RulesFired:   rulesFired,
+	}, nil
+}
+
+func disabledRuleSet(names []string) map[string]bool {
+	disabled := make(map[string]bool, len(names))
+	for _, name := range names {
+		disabled[name] = true
+	}
+	return disabled
+}

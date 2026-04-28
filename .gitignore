@@ -1,0 +1,13 @@
+# Build artifacts
+mdcompress
+mdcompress.exe
+dist/
+
+# mdcompress runtime state (compressed mirrors are per-clone)
+.mdcompress/cache/
+.mdcompress/manifest.json
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
