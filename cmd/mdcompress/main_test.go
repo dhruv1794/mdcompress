@@ -8,6 +8,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	mdcache "github.com/dhruv1794/mdcompress/pkg/cache"
+	"github.com/dhruv1794/mdcompress/pkg/manifest"
 )
 
 func TestAppendCursorHintsNoFiles(t *testing.T) {
@@ -399,6 +403,165 @@ func TestCheckConfigReportsInvalidTier(t *testing.T) {
 	}
 	if !strings.Contains(check.Detail, "unknown tier") {
 		t.Fatalf("Detail missing tier error: %#v", check)
+	}
+}
+
+func TestStatusCommandShowsV2Summary(t *testing.T) {
+	chdirTemp(t)
+	if _, err := exec.Command("git", "init").CombinedOutput(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exec.Command("git", "remote", "add", "origin", "https://example.com/acme/widgets.git").CombinedOutput(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(".mdcompress", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(".mdcompress", "config.yaml"), []byte("version: 1\ntier: safe\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll("docs", 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	sources := map[string][]byte{
+		"README.md":         []byte("# Project\n\n<!-- hidden -->\n\nContent.\n"),
+		"docs/guide.md":     []byte("# Guide\n\nContent.\n"),
+		"docs/unchanged.md": []byte("# Unchanged\n\nNo savings.\n"),
+	}
+	for path, content := range sources {
+		if err := os.WriteFile(path, content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, content := range sources {
+		if _, err := mdcache.Write(mdcache.DefaultDir, path, content); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := manifest.New()
+	m.Entries["README.md"] = manifest.Entry{
+		Source:       "README.md",
+		Cache:        filepath.ToSlash(filepath.Join(".mdcompress", "cache", "README.md")),
+		SHA256:       mdcache.SourceSHA(sources["README.md"]),
+		TokensBefore: 7000,
+		TokensAfter:  4500,
+	}
+	m.Entries["docs/guide.md"] = manifest.Entry{
+		Source:       "docs/guide.md",
+		Cache:        filepath.ToSlash(filepath.Join(".mdcompress", "cache", "docs", "guide.md")),
+		SHA256:       mdcache.SourceSHA(sources["docs/guide.md"]),
+		TokensBefore: 3000,
+		TokensAfter:  2500,
+	}
+	m.Entries["docs/unchanged.md"] = manifest.Entry{
+		Source:       "docs/unchanged.md",
+		Cache:        filepath.ToSlash(filepath.Join(".mdcompress", "cache", "docs", "unchanged.md")),
+		SHA256:       mdcache.SourceSHA(sources["docs/unchanged.md"]),
+		TokensBefore: 1000,
+		TokensAfter:  1000,
+	}
+	if err := manifest.Write(manifest.DefaultPath, m); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	cmd := statusCommand()
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"Repo: https://example.com/acme/widgets.git",
+		"Tier: safe",
+		"Files tracked: 3",
+		"Cache: 3 fresh, 0 stale, 0 missing",
+		"Tokens before: 11,000",
+		"Tokens after:  8,000",
+		"Saved:         3,000 (27.3%)",
+		"ROI estimate (Claude Sonnet input pricing, $3.00/MTok):",
+		"Per full-cache read: ~$0.0090",
+		"README.md                        2,500 saved (35.7%)",
+		"docs/guide.md                    500 saved (16.7%)",
+		"per clone, not shared team-wide",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("status output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "docs/unchanged.md") {
+		t.Fatalf("top savings included zero-savings file:\n%s", text)
+	}
+}
+
+func TestRunMarkdownBareRunRefreshesStaleMTime(t *testing.T) {
+	chdirTemp(t)
+	if err := os.WriteFile("README.md", []byte("# Project\n\n<!-- hidden -->\n\nContent.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cachePath, err := mdcache.Write(mdcache.DefaultDir, "README.md", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldTime := time.Now().Add(-2 * time.Hour)
+	newTime := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(cachePath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes("README.md", newTime, newTime); err != nil {
+		t.Fatal(err)
+	}
+
+	m := manifest.New()
+	m.Entries["README.md"] = manifest.Entry{
+		Source:       "README.md",
+		Cache:        cachePath,
+		SHA256:       mdcache.SourceSHA(source),
+		TokensBefore: 10,
+		TokensAfter:  10,
+	}
+	if err := manifest.Write(manifest.DefaultPath, m); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := runMarkdown(runOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Compressed != 1 || summary.Skipped != 0 {
+		t.Fatalf("summary = %#v, want 1 compressed and 0 skipped", summary)
+	}
+	cacheData := readFile(t, cachePath)
+	if strings.Contains(cacheData, "hidden") {
+		t.Fatalf("stale cache was not refreshed:\n%s", cacheData)
+	}
+}
+
+func TestRunMarkdownNoStaleCheckSkipsBareAutoRefresh(t *testing.T) {
+	chdirTemp(t)
+	if err := os.WriteFile("README.md", []byte("# Project\n\nContent.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := runMarkdown(runOptions{NoStaleCheck: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Compressed != 0 || summary.Skipped != 0 {
+		t.Fatalf("summary = %#v, want no work", summary)
+	}
+	if fileExists(manifest.DefaultPath) {
+		t.Fatalf("--no-stale-check bare run wrote %s", manifest.DefaultPath)
+	}
+	if fileExists(filepath.Join(".mdcompress", "cache", "README.md")) {
+		t.Fatalf("--no-stale-check bare run wrote cache")
 	}
 }
 
