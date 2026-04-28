@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -230,9 +231,9 @@ func TestAppendContinueHintIsIdempotent(t *testing.T) {
 func TestAppendContinueHintPreservesUserKeys(t *testing.T) {
 	chdirTemp(t)
 	original := map[string]any{
-		"models":              []any{map[string]any{"title": "Local", "provider": "ollama"}},
+		"models":               []any{map[string]any{"title": "Local", "provider": "ollama"}},
 		"tabAutocompleteModel": map[string]any{"title": "Auto", "provider": "ollama"},
-		"customCommands":      []any{map[string]any{"name": "test", "prompt": "hi"}},
+		"customCommands":       []any{map[string]any{"name": "test", "prompt": "hi"}},
 	}
 	writeContinueConfig(t, original)
 
@@ -264,6 +265,188 @@ func TestAppendContinueHintMalformedJSONErrors(t *testing.T) {
 
 	if err := appendContinueHint(); err == nil {
 		t.Fatalf("expected error parsing malformed JSON, got nil")
+	}
+}
+
+func TestInstallHooksUsesHuskyWhenPresent(t *testing.T) {
+	chdirTemp(t)
+	if err := os.MkdirAll(".husky", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(".husky", "pre-commit"), []byte("#!/bin/sh\nnpm test\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installHooks(); err != nil {
+		t.Fatal(err)
+	}
+	if err := installHooks(); err != nil {
+		t.Fatal(err)
+	}
+
+	preCommit := readFile(t, filepath.Join(".husky", "pre-commit"))
+	if !strings.Contains(preCommit, "npm test") {
+		t.Fatalf("existing Husky pre-commit content was not preserved:\n%s", preCommit)
+	}
+	if count := strings.Count(preCommit, "# mdcompress"); count != 1 {
+		t.Fatalf("Husky pre-commit marker count = %d, want 1:\n%s", count, preCommit)
+	}
+	if !strings.Contains(preCommit, "mdcompress run --staged --quiet") {
+		t.Fatalf("Husky pre-commit missing staged command:\n%s", preCommit)
+	}
+
+	postMerge := readFile(t, filepath.Join(".husky", "post-merge"))
+	if count := strings.Count(postMerge, "# mdcompress"); count != 1 {
+		t.Fatalf("Husky post-merge marker count = %d, want 1:\n%s", count, postMerge)
+	}
+	if !strings.Contains(postMerge, "mdcompress run --changed --quiet") {
+		t.Fatalf("Husky post-merge missing changed command:\n%s", postMerge)
+	}
+}
+
+func TestInstallHooksUsesPreCommitConfigWhenPresent(t *testing.T) {
+	chdirTemp(t)
+	original := "repos:\n  - repo: https://github.com/pre-commit/pre-commit-hooks\n"
+	if err := os.WriteFile(".pre-commit-config.yaml", []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installHooks(); err != nil {
+		t.Fatal(err)
+	}
+	if err := installHooks(); err != nil {
+		t.Fatal(err)
+	}
+
+	text := readFile(t, ".pre-commit-config.yaml")
+	if !strings.Contains(text, "pre-commit/pre-commit-hooks") {
+		t.Fatalf("existing pre-commit config was not preserved:\n%s", text)
+	}
+	if count := strings.Count(text, "# mdcompress"); count != 1 {
+		t.Fatalf("pre-commit marker count = %d, want 1:\n%s", count, text)
+	}
+	for _, want := range []string{"mdcompress-staged", "mdcompress-post-merge", "stages: [pre-commit]", "stages: [post-merge]"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("pre-commit config missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestInstallHooksUsesLefthookWhenPresent(t *testing.T) {
+	chdirTemp(t)
+	original := "pre-commit:\n  commands:\n    test:\n      run: go test ./...\n"
+	if err := os.WriteFile("lefthook.yml", []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installHooks(); err != nil {
+		t.Fatal(err)
+	}
+	if err := installHooks(); err != nil {
+		t.Fatal(err)
+	}
+
+	text := readFile(t, "lefthook.yml")
+	if !strings.Contains(text, "test:\n      run: go test ./...") {
+		t.Fatalf("existing lefthook command was not preserved:\n%s", text)
+	}
+	if count := strings.Count(text, "# mdcompress pre-commit"); count != 1 {
+		t.Fatalf("lefthook pre-commit marker count = %d, want 1:\n%s", count, text)
+	}
+	if count := strings.Count(text, "# mdcompress post-merge"); count != 1 {
+		t.Fatalf("lefthook post-merge marker count = %d, want 1:\n%s", count, text)
+	}
+	if !strings.Contains(text, "mdcompress run --staged --quiet") || !strings.Contains(text, "mdcompress run --changed --quiet") {
+		t.Fatalf("lefthook config missing mdcompress commands:\n%s", text)
+	}
+}
+
+func TestInstallHooksFallsBackToDirectGitHooks(t *testing.T) {
+	chdirTemp(t)
+	if _, err := exec.Command("git", "init").CombinedOutput(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installHooks(); err != nil {
+		t.Fatal(err)
+	}
+	if err := installHooks(); err != nil {
+		t.Fatal(err)
+	}
+
+	preCommit := readFile(t, filepath.Join(".git", "hooks", "pre-commit"))
+	if count := strings.Count(preCommit, "# mdcompress"); count != 1 {
+		t.Fatalf("direct pre-commit marker count = %d, want 1:\n%s", count, preCommit)
+	}
+	postMerge := readFile(t, filepath.Join(".git", "hooks", "post-merge"))
+	if count := strings.Count(postMerge, "# mdcompress"); count != 1 {
+		t.Fatalf("direct post-merge marker count = %d, want 1:\n%s", count, postMerge)
+	}
+}
+
+func TestCheckConfigReportsInvalidTier(t *testing.T) {
+	chdirTemp(t)
+	if err := os.MkdirAll(".mdcompress", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(".mdcompress", "config.yaml"), []byte("version: 1\ntier: bogus\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	check := checkConfig()
+	if check.Status != doctorFail {
+		t.Fatalf("Status = %s, want %s: %#v", check.Status, doctorFail, check)
+	}
+	if !strings.Contains(check.Detail, "unknown tier") {
+		t.Fatalf("Detail missing tier error: %#v", check)
+	}
+}
+
+func TestFixDoctorRepairsFreshGitRepo(t *testing.T) {
+	chdirTemp(t)
+	if _, err := exec.Command("git", "init").CombinedOutput(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("README.md", []byte("# Project\n\n<!-- hidden -->\n\nContent.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fixes, err := fixDoctor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"wrote .mdcompress/config.yaml",
+		"installed mdcompress hooks",
+		"restored agent hints",
+		"rebuilt markdown cache and manifest",
+	} {
+		if !containsString(fixes, want) {
+			t.Fatalf("fixes missing %q: %#v", want, fixes)
+		}
+	}
+
+	for _, path := range []string{
+		".mdcompress/config.yaml",
+		filepath.Join(".git", "hooks", "pre-commit"),
+		filepath.Join(".git", "hooks", "post-merge"),
+		"AGENTS.md",
+		filepath.Join(".mdcompress", "cache", "README.md"),
+		filepath.Join(".mdcompress", "manifest.json"),
+	} {
+		if !fileExists(path) {
+			t.Fatalf("expected %s to exist", path)
+		}
+	}
+
+	statusByName := make(map[string]string)
+	for _, check := range diagnoseRepo() {
+		statusByName[check.Name] = check.Status
+	}
+	for _, name := range []string{"config", "hooks", "agent hints", "cache freshness", "manifest"} {
+		if statusByName[name] != doctorOK {
+			t.Fatalf("%s status = %s, want %s; all statuses: %#v", name, statusByName[name], doctorOK, statusByName)
+		}
 	}
 }
 
@@ -323,6 +506,24 @@ func readContinueConfig(t *testing.T) map[string]any {
 		t.Fatalf("config.json is not valid JSON after merge: %v\n%s", err, data)
 	}
 	return got
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func chdirTemp(t *testing.T) {
