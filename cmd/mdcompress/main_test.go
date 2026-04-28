@@ -406,6 +406,66 @@ func TestCheckConfigReportsInvalidTier(t *testing.T) {
 	}
 }
 
+func TestReadEvalConfig(t *testing.T) {
+	chdirTemp(t)
+	if err := os.MkdirAll(".mdcompress", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(".mdcompress", "config.yaml"), []byte(`version: 1
+tier: safe
+eval:
+  backend: openai
+  model: eval-model
+  endpoint: http://127.0.0.1:8080/v1
+  api_key_env: TEST_OPENAI_KEY
+  threshold: 0.91
+  questions_per_doc: 7
+  seeds: 3
+hooks:
+  pre_commit: true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := readEvalConfig(filepath.Join(".mdcompress", "config.yaml"))
+	if cfg.Backend != "openai" || cfg.Model != "eval-model" || cfg.Endpoint != "http://127.0.0.1:8080/v1" || cfg.APIKeyEnv != "TEST_OPENAI_KEY" {
+		t.Fatalf("unexpected string config: %#v", cfg)
+	}
+	if cfg.Threshold != 0.91 || cfg.QuestionsPerDoc != 7 || cfg.Seeds != 3 {
+		t.Fatalf("unexpected numeric config: %#v", cfg)
+	}
+}
+
+func TestEvalBackendRequiresExplicitModelForHostedProviders(t *testing.T) {
+	for _, backend := range []string{"openai", "anthropic"} {
+		if _, err := evalBackend(backend, "", "", "TEST_KEY"); err == nil || !strings.Contains(err.Error(), "requires --model") {
+			t.Fatalf("%s missing model error = %v", backend, err)
+		}
+	}
+}
+
+func TestEvalCommandHelpDocumentsRepoAndRule(t *testing.T) {
+	var out strings.Builder
+	cmd := evalCommand()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"eval [--repo=<path>] [--rule=<name>]",
+		"mdcompress eval --repo=.",
+		"mdcompress eval --repo=docs --rule=strip-toc",
+		"--backend=openai --model=gpt-4o-mini",
+		"Use --rule to isolate one registered rule",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("help output missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestStatusCommandShowsV2Summary(t *testing.T) {
 	chdirTemp(t)
 	if _, err := exec.Command("git", "init").CombinedOutput(); err != nil {

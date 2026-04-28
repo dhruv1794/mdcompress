@@ -68,6 +68,36 @@ The v1 safe tier applies deterministic markdown rules in a fixed order:
 The cache manifest is stored at `.mdcompress/manifest.json` and is gitignored.
 That means cumulative `status` numbers are per clone, not shared team-wide.
 
+## Faithfulness eval
+
+`mdcompress eval` verifies that compressed markdown still answers factual
+questions the same way as the original. It uses Ollama by default, with optional
+Anthropic and OpenAI judges.
+
+```sh
+mdcompress eval --repo=.                       # evaluate all markdown
+mdcompress eval --repo=docs --rule=strip-toc   # isolate one rule
+mdcompress eval --json-out=.mdcompress/eval.json --markdown-out=.mdcompress/eval.md
+```
+
+Configuration can live in `.mdcompress/config.yaml`:
+
+```yaml
+eval:
+  backend: ollama
+  model: llama3.1:8b
+  threshold: 0.95
+  questions_per_doc: 10
+  seeds: 1
+```
+
+For hosted judges, pass an explicit model and API key environment variable:
+
+```sh
+mdcompress eval --backend=openai --model=gpt-4o-mini --api-key-env=OPENAI_API_KEY
+mdcompress eval --backend=anthropic --model=claude-3-5-haiku-latest --api-key-env=ANTHROPIC_API_KEY
+```
+
 ## v1 acceptance
 
 v1 is considered ready when:
