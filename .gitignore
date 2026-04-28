@@ -1,6 +1,6 @@
 # Build artifacts
-mdcompress
-mdcompress.exe
+/mdcompress
+/mdcompress.exe
 dist/
 
 # mdcompress runtime state (compressed mirrors are per-clone)
@@ -11,3 +11,7 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+
+# Personal Files
+
+docs/
