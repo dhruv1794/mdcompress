@@ -16,6 +16,7 @@ import (
 	mdcache "github.com/dhruv1794/mdcompress/pkg/cache"
 	"github.com/dhruv1794/mdcompress/pkg/compress"
 	mdeval "github.com/dhruv1794/mdcompress/pkg/eval"
+	mdllm "github.com/dhruv1794/mdcompress/pkg/llm"
 	"github.com/dhruv1794/mdcompress/pkg/manifest"
 	"github.com/spf13/cobra"
 )
@@ -40,6 +41,8 @@ func main() {
 	root.AddCommand(initCommand())
 	root.AddCommand(installHooksCommand())
 	root.AddCommand(installSkillCommand())
+	root.AddCommand(serveCommand())
+	root.AddCommand(initMCPCommand())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -297,11 +300,24 @@ type evalConfig struct {
 	Seeds           int
 }
 
+type llmConfig struct {
+	Backend          string
+	Model            string
+	Endpoint         string
+	APIKeyEnv        string
+	Cache            bool
+	Threshold        float64
+	MinSectionTokens int
+	JudgeBackend     string
+	JudgeModel       string
+}
+
 type projectConfig struct {
 	TierName      string
 	EnabledRules  []string
 	DisabledRules []string
 	Eval          evalConfig
+	LLM           llmConfig
 }
 
 func defaultProjectConfig() projectConfig {
@@ -313,6 +329,13 @@ func defaultProjectConfig() projectConfig {
 			Threshold:       mdeval.DefaultThreshold,
 			QuestionsPerDoc: mdeval.DefaultQuestionsPerDoc,
 			Seeds:           mdeval.DefaultSeeds,
+		},
+		LLM: llmConfig{
+			Backend:          mdllm.DefaultBackend,
+			Model:            mdllm.DefaultModel,
+			Cache:            true,
+			Threshold:        mdllm.DefaultThreshold,
+			MinSectionTokens: mdllm.DefaultMinSectionTokens,
 		},
 	}
 }
@@ -346,6 +369,9 @@ func readProjectConfig(path string) projectConfig {
 			continue
 		case !indented && trimmed == "eval:":
 			section = "eval"
+			continue
+		case !indented && trimmed == "llm:":
+			section = "llm"
 			continue
 		}
 
@@ -404,6 +430,39 @@ func readProjectConfig(path string) projectConfig {
 					cfg.Eval.Seeds = parsed
 				}
 			}
+			continue
+		}
+
+		if section == "llm" {
+			key, value, ok := strings.Cut(trimmed, ":")
+			if !ok {
+				continue
+			}
+			value = trimConfigValue(value)
+			switch strings.TrimSpace(key) {
+			case "backend":
+				cfg.LLM.Backend = value
+			case "model":
+				cfg.LLM.Model = value
+			case "endpoint":
+				cfg.LLM.Endpoint = value
+			case "api_key_env":
+				cfg.LLM.APIKeyEnv = value
+			case "cache":
+				cfg.LLM.Cache = strings.EqualFold(value, "true")
+			case "threshold":
+				if parsed, err := strconv.ParseFloat(value, 64); err == nil {
+					cfg.LLM.Threshold = parsed
+				}
+			case "min_section_tokens":
+				if parsed, err := strconv.Atoi(value); err == nil {
+					cfg.LLM.MinSectionTokens = parsed
+				}
+			case "judge_backend":
+				cfg.LLM.JudgeBackend = value
+			case "judge_model":
+				cfg.LLM.JudgeModel = value
+			}
 		}
 	}
 	return cfg
@@ -431,10 +490,15 @@ func compressionOptionsFromFlags(cmd *cobra.Command, tier string, enabledRules, 
 	if cmd.Flags().Changed("disable-rule") {
 		disabled = disabledRules
 	}
+	rewriter, err := buildLLMRewriter(parsedTier, cfg.LLM)
+	if err != nil {
+		return compress.Options{}, err
+	}
 	return compress.Options{
 		Tier:          parsedTier,
 		EnabledRules:  enabled,
 		DisabledRules: disabled,
+		LLMRewriter:   rewriter,
 	}, nil
 }
 
@@ -444,11 +508,60 @@ func compressionOptionsFromConfig(path string) compress.Options {
 	if err != nil {
 		tier = compress.TierSafe
 	}
+	rewriter, err := buildLLMRewriter(tier, cfg.LLM)
+	if err != nil {
+		// fall back to Tier-2 silently — rewriter construction errors are
+		// surfaced by user-facing commands; non-interactive call sites keep
+		// the project usable when an env var is missing.
+		rewriter = nil
+	}
 	return compress.Options{
 		Tier:          tier,
 		EnabledRules:  cfg.EnabledRules,
 		DisabledRules: cfg.DisabledRules,
+		LLMRewriter:   rewriter,
 	}
+}
+
+// buildLLMRewriter returns a Tier-3 rewriter wired to the configured backend
+// and on-disk cache, or nil when tier is below TierLLM.
+func buildLLMRewriter(tier compress.Tier, cfg llmConfig) (compress.LLMRewriter, error) {
+	if tier != compress.TierLLM {
+		return nil, nil
+	}
+	backend, err := mdllm.NewBackend(mdllm.Config{
+		Backend:   cfg.Backend,
+		Model:     cfg.Model,
+		Endpoint:  cfg.Endpoint,
+		APIKeyEnv: cfg.APIKeyEnv,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var judge mdllm.Backend
+	if strings.TrimSpace(cfg.JudgeBackend) != "" {
+		judge, err = mdllm.NewBackend(mdllm.Config{
+			Backend:   cfg.JudgeBackend,
+			Model:     cfg.JudgeModel,
+			Endpoint:  cfg.Endpoint,
+			APIKeyEnv: cfg.APIKeyEnv,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	rewriter := mdllm.NewRewriter(backend)
+	rewriter.Judge = judge
+	if cfg.MinSectionTokens > 0 {
+		rewriter.MinSectionTokens = cfg.MinSectionTokens
+	}
+	if cfg.Threshold > 0 {
+		rewriter.Threshold = cfg.Threshold
+	}
+	if cfg.Cache {
+		rewriter.Cache = mdllm.NewCache(mdllm.DefaultCacheDir)
+	}
+	return mdllm.NewCompressAdapter(rewriter), nil
 }
 
 func defaultDisabledRules() []string {
@@ -562,6 +675,7 @@ func cleanCommand() *cobra.Command {
 
 func initCommand() *cobra.Command {
 	var agentsFlag string
+	var mcpFlag bool
 
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -625,12 +739,23 @@ func initCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var mcpFiles []string
+			if mcpFlag {
+				mcpFiles, err = installMCPConfigs(agents)
+				if err != nil {
+					return err
+				}
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Initialized mdcompress in this repo. Cache: %d files, saved %d tokens.\n", summary.Compressed+summary.Skipped, summary.TokensSaved)
+			if len(mcpFiles) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "MCP wired into: %s\n", strings.Join(mcpFiles, ", "))
+			}
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&agentsFlag, "agents", "", "comma-separated agents to integrate with (claude,codex,cursor,windsurf,continue,aider). Default: all.")
+	cmd.Flags().BoolVar(&mcpFlag, "mcp", false, "also wire 'mdcompress serve' into agent MCP config files")
 	return cmd
 }
 
@@ -1931,4 +2056,12 @@ eval:
   threshold: 0.95
   questions_per_doc: 10
   seeds: 1
+llm:
+  backend: ollama
+  model: llama3.1:8b
+  endpoint: http://localhost:11434
+  api_key_env: ANTHROPIC_API_KEY
+  cache: true
+  threshold: 0.95
+  min_section_tokens: 200
 `

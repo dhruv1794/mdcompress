@@ -1,0 +1,73 @@
+{
+  "name": "mdcompress",
+  "displayName": "mdcompress",
+  "description": "Compress markdown to save LLM tokens. Refreshes the .mdcompress/ cache mirror on save and surfaces savings in the status bar.",
+  "version": "0.1.0",
+  "publisher": "dhruv1794",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dhruv1794/mdcompress.git",
+    "directory": "extensions/vscode"
+  },
+  "engines": {
+    "vscode": "^1.84.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "markdown",
+    "llm",
+    "tokens",
+    "claude",
+    "agents"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:markdown",
+    "workspaceContains:.mdcompress/manifest.json"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "mdcompress.viewCompressed",
+        "title": "mdcompress: View compressed mirror",
+        "category": "mdcompress"
+      },
+      {
+        "command": "mdcompress.runCurrentFile",
+        "title": "mdcompress: Refresh cache for current file",
+        "category": "mdcompress"
+      }
+    ],
+    "configuration": {
+      "title": "mdcompress",
+      "properties": {
+        "mdcompress.runOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run `mdcompress run <path>` after saving a tracked .md file."
+        },
+        "mdcompress.binaryPath": {
+          "type": "string",
+          "default": "mdcompress",
+          "description": "Path to the mdcompress binary. Use an absolute path if mdcompress is not on PATH."
+        },
+        "mdcompress.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show per-file token savings in the status bar."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.84.0",
+    "@vscode/vsce": "^3.0.0"
+  }
+}

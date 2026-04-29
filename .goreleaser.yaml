@@ -1,0 +1,125 @@
+version: 2
+project_name: mdcompress
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: mdcompress
+    main: ./cmd/mdcompress
+    binary: mdcompress
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    ids:
+      - mdcompress
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+
+release:
+  github:
+    owner: dhruv1794
+    name: mdcompress
+  draft: false
+  prerelease: auto
+
+brews:
+  - name: mdcompress
+    repository:
+      owner: dhruv1794
+      name: homebrew-mdcompress
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/dhruv1794/mdcompress"
+    description: "Compress markdown to save LLM tokens"
+    license: MIT
+    install: |
+      bin.install "mdcompress"
+    test: |
+      system "#{bin}/mdcompress", "version"
+
+scoops:
+  - name: mdcompress
+    repository:
+      owner: dhruv1794
+      name: scoop-mdcompress
+      token: "{{ .Env.SCOOP_BUCKET_GITHUB_TOKEN }}"
+    homepage: "https://github.com/dhruv1794/mdcompress"
+    description: "Compress markdown to save LLM tokens"
+    license: MIT
+
+dockers:
+  - id: mdcompress-amd64
+    image_templates:
+      - "ghcr.io/dhruv1794/mdcompress:{{ .Version }}-amd64"
+      - "ghcr.io/dhruv1794/mdcompress:latest-amd64"
+    use: buildx
+    dockerfile: Dockerfile
+    goos: linux
+    goarch: amd64
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.source=https://github.com/dhruv1794/mdcompress"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.licenses=MIT"
+  - id: mdcompress-arm64
+    image_templates:
+      - "ghcr.io/dhruv1794/mdcompress:{{ .Version }}-arm64"
+      - "ghcr.io/dhruv1794/mdcompress:latest-arm64"
+    use: buildx
+    dockerfile: Dockerfile
+    goos: linux
+    goarch: arm64
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.source=https://github.com/dhruv1794/mdcompress"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.licenses=MIT"
+
+docker_manifests:
+  - name_template: "ghcr.io/dhruv1794/mdcompress:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/dhruv1794/mdcompress:{{ .Version }}-amd64"
+      - "ghcr.io/dhruv1794/mdcompress:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/dhruv1794/mdcompress:latest"
+    image_templates:
+      - "ghcr.io/dhruv1794/mdcompress:latest-amd64"
+      - "ghcr.io/dhruv1794/mdcompress:latest-arm64"
