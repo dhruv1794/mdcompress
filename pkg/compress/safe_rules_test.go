@@ -120,3 +120,27 @@ func TestCompressAggressiveTierStripsHedgingPhrases(t *testing.T) {
 		t.Fatalf("strip-hedging-phrases fired %d times", aggressive.RulesFired["strip-hedging-phrases"])
 	}
 }
+
+func TestCompressAggressiveTierStripsBenchmarkProse(t *testing.T) {
+	input := []byte("# Project\n\n| Repo | Tokens | Reduction |\n| --- | ---: | ---: |\n| react | 4500 | 38% |\n| express | 2100 | 22% |\n\nThe benchmarks above show that react sees a 38% reduction while express sees 22%.\n")
+
+	safe, err := compress.Compress(input, compress.Options{Tier: compress.TierSafe})
+	if err != nil {
+		t.Fatalf("safe Compress() error = %v", err)
+	}
+	if !bytes.Equal(safe.Output, input) {
+		t.Fatalf("safe output = %q, want %q", safe.Output, input)
+	}
+
+	aggressive, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
+	if err != nil {
+		t.Fatalf("aggressive Compress() error = %v", err)
+	}
+	want := []byte("# Project\n\n| Repo | Tokens | Reduction |\n| --- | ---: | ---: |\n| react | 4500 | 38% |\n| express | 2100 | 22% |\n")
+	if !bytes.Equal(aggressive.Output, want) {
+		t.Fatalf("aggressive output = %q, want %q", aggressive.Output, want)
+	}
+	if aggressive.RulesFired["strip-benchmark-prose"] != 1 {
+		t.Fatalf("strip-benchmark-prose fired %d times", aggressive.RulesFired["strip-benchmark-prose"])
+	}
+}

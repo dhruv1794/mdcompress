@@ -8,6 +8,7 @@ var allRules = []Rule{
 	&TrailingCTA{},
 	&MarketingProse{},
 	&HedgingPhrases{},
+	&BenchmarkProse{},
 	&BlankLines{},
 }
 
