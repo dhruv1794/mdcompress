@@ -31,10 +31,11 @@ pkg/compress    — assemble Result, optionally run LLM rewriter (Tier 3)
 mdcompress/
 ├── cmd/mdcompress/
 │   ├── main.go          — cobra root + all sub-commands
-│   └── serve.go         — MCP server command + init-mcp command
+│   ├── serve.go         — MCP server command + init-mcp command
+│   └── web.go           — HTTP server with interactive test page
 ├── pkg/
 │   ├── compress/        — public Compress() API, tier parsing, LLM adapter hook
-│   ├── rules/           — Rule interface, Tier enum, ordered registry, all rule files
+│   ├── rules/           — Rule interface, Tier enum, ordered registry, 16 rule files
 │   ├── parser/          — goldmark parse wrapper
 │   ├── render/          — byte-range splice (Edit/Range types + ApplyEdits)
 │   ├── tokens/          — token counting via tiktoken-go cl100k_base
@@ -42,14 +43,20 @@ mdcompress/
 │   ├── cache/           — read/write .mdcompress/cache/<rel-path>, SHA helpers
 │   ├── eval/            — faithfulness eval harness (question gen, judge, report)
 │   ├── llm/             — Tier-3 rewriter, Ollama/Anthropic/OpenAI backends, cache
-│   └── server/          — MCP stdio server (read_markdown, compress_text, compress_url)
+│   ├── server/          — MCP stdio server (read_markdown, compress_text, compress_url)
+│   └── migrate/         — config migration from markdownlint, Vale, Prettier
 ├── internal/
-│   ├── assets.go        — go:embed for hook scripts and Claude Code skill
+│   ├── assets.go        — go:embed for hook scripts, Claude Code skill, test page
 │   ├── hooks/           — pre-commit.sh, post-merge.sh (embedded)
 │   ├── skill/           — SKILL.md for Claude Code (embedded)
+│   ├── test.html        — interactive test page served by `mdcompress web` (embedded)
 │   └── testdata/        — corpus (real READMEs) + golden (expected outputs)
+├── docs/
+│   ├── site/            — Vite + React SPA (benchmarks + interactive test)
+│   │   └── src/pages/{Benchmarks,Test}.jsx
+│   ├── _site/           — built static output (deployed to GitHub Pages)
+│   └── *.md             — project specs, roadmap, execution notes
 ├── extensions/vscode/   — VS Code extension (shows token savings on save)
-├── docs/                — project specs, roadmap, execution notes
 └── go.mod               — module github.com/dhruv1794/mdcompress, go 1.22
 ```
 
@@ -81,19 +88,24 @@ type Rule interface {
 
 | Name | Tier | Removes |
 |------|------|---------|
+| `strip-frontmatter` | safe | YAML/TOML frontmatter at document start |
 | `strip-html-comments` | safe | `<!-- ... -->` blocks |
 | `strip-badges` | safe | Shield.io and similar badge images |
 | `strip-decorative-images` | safe | Standalone images with no informational alt text |
+| `strip-metadata-lines` | safe | `**Last updated:**`, `**Version:**`, etc. |
 | `strip-toc` | safe | Generated table-of-contents blocks |
 | `strip-trailing-cta` | safe | Social/star/sponsor sections near document end |
 | `strip-marketing-prose` | aggressive | "blazing fast", "production-ready", decoration phrases |
 | `strip-hedging-phrases` | aggressive | "it is worth noting that", "in order to", etc. |
-| `dedup-cross-section` | aggressive | Duplicate facts repeated across sections (opt-in) |
+| `dedup-cross-section` | aggressive | Duplicate facts repeated across sections |
 | `strip-benchmark-prose` | aggressive | Prose that just narrates an adjacent table |
-| `collapse-example-output` | aggressive | `--help`-style command-output blocks (opt-in) |
+| `strip-admonition-prefixes` | aggressive | `**Note:**`, `**Warning:**`, `**Tip:**` prefixes |
+| `strip-cross-references` | aggressive | "See the [X] section for details" type phrases |
+| `strip-boilerplate-sections` | aggressive | Contributing/License/Support sections redirecting to dedicated files **(opt-in)** |
+| `collapse-example-output` | aggressive | `--help`-style command-output blocks **(opt-in)** |
 | `collapse-blank-lines` | safe | Excessive blank lines outside fenced code blocks |
 
-Rules that are `DefaultDisabled` (currently `collapse-example-output`) must be explicitly opted in via `--enable-rule` or config even when their tier is active.
+Rules that are `DefaultDisabled` (currently `collapse-example-output` and `strip-boilerplate-sections`) must be explicitly opted in via `--enable-rule` or config even when their tier is active.
 
 ## Cache and manifest
 
@@ -147,6 +159,17 @@ When `tier: llm` is configured, `pkg/llm.Rewriter` is attached to the compress p
 4. Fails if the average score falls below `Threshold` (default 0.95).
 
 Supported backends for eval: Ollama (default), Anthropic, OpenAI.
+
+## Web test page
+
+`mdcompress web` starts a local HTTP server serving an interactive test page (embedded via `go:embed`). A separate **React SPA** in `docs/site/` provides the same test page at the [public benchmark site](https://dhruv1794.github.io/mdcompress/) with client-side JavaScript compression mirroring all 16 Go rules (no server needed). Both share the same dark theme and navigation.
+
+**API endpoints** (`mdcompress web` only):
+- `GET /` — embedded interactive test page
+- `GET /api/rules` — list of all rules with name, tier, default status
+- `POST /api/compress` — accepts `{content, tier, disabled[], enabled[]}`, returns `{output, tokens_before, tokens_after, bytes_before, bytes_after, rules_fired}`
+
+The React SPA (`docs/site/`) builds to `docs/_site/` and is deployed to GitHub Pages via the benchmark CI workflow. It uses HashRouter for client-side routing (`/` for benchmarks, `#/test` for interactive test).
 
 ## Key dependencies
 
