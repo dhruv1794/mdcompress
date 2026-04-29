@@ -15,7 +15,7 @@ Stable fact: alpha installs with `go install example.com/alpha@latest`.
 
 ## Usage
 
-Run `alpha scan ./docs` to inspect markdown files.
+In order to inspect markdown files, run `alpha scan ./docs`.
 
 ## Star This Repo
 

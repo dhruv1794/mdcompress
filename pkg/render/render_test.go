@@ -67,6 +67,15 @@ func TestSpliceClampsOutOfRange(t *testing.T) {
 	}
 }
 
+func TestApplyEditsReplacesRange(t *testing.T) {
+	src := []byte("Run in order to test.")
+	got := render.ApplyEdits(src, []render.Edit{{Start: 4, End: 15, Replacement: []byte("to")}})
+	want := []byte("Run to test.")
+	if !bytes.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 // TestRoundtripCorpus exercises the parser on real documents and asserts
 // that splicing with no ranges returns the source byte-for-byte.
 func TestRoundtripCorpus(t *testing.T) {

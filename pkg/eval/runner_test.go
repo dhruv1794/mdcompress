@@ -36,6 +36,44 @@ func (fakeBackend) Complete(prompt string) (string, error) {
 	}
 }
 
+type failingBackend struct{}
+
+func (failingBackend) Name() string {
+	return "failing"
+}
+
+func (failingBackend) Complete(prompt string) (string, error) {
+	return "", os.ErrInvalid
+}
+
+func TestRunPassesNoOpCompressionWithoutCallingBackend(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Project\n\nRun `npm install`.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := Run(Options{
+		Repo:            dir,
+		Tier:            compress.TierSafe,
+		QuestionsPerDoc: 3,
+		Threshold:       0.95,
+		Backend:         failingBackend{},
+		Model:           "unused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Passed || report.AverageScore != 1 {
+		t.Fatalf("report score = %.3f passed=%v, want 1/pass", report.AverageScore, report.Passed)
+	}
+	if len(report.Files) != 1 || !report.Files[0].Passed || report.Files[0].AverageScore != 1 {
+		t.Fatalf("file report = %#v, want one passing no-op file", report.Files)
+	}
+	if len(report.Files[0].Questions) != 0 {
+		t.Fatalf("Questions = %d, want 0 for no-op fast path", len(report.Files[0].Questions))
+	}
+}
+
 func TestRunProducesPassingReport(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Project\n\n<!-- hidden -->\n\nRun `npm install`.\n"), 0o644); err != nil {

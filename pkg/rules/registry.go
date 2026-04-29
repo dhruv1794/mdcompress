@@ -6,6 +6,9 @@ var allRules = []Rule{
 	&DecorativeImages{},
 	&TOC{},
 	&TrailingCTA{},
+	&MarketingProse{},
+	&HedgingPhrases{},
+	&BenchmarkProse{},
 	&BlankLines{},
 }
 

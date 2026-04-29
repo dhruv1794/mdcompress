@@ -40,7 +40,7 @@ func Compress(content []byte, opts Options) (Result, error) {
 		if changeSet.Stats.NodesAffected > 0 {
 			rulesFired[rule.Name()] = changeSet.Stats.NodesAffected
 		}
-		output = render.Splice(output, changeSet.Ranges)
+		output = render.ApplyEdits(output, changeSet.Edits)
 	}
 
 	return Result{
