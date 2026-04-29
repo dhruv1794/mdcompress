@@ -10,3 +10,6 @@ var PostMergeHook string
 
 //go:embed skill/SKILL.md
 var Skill string
+
+//go:embed test.html
+var TestPage string

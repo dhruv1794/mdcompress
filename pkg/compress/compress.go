@@ -9,6 +9,8 @@ import (
 )
 
 // Compress runs the configured rule tier against markdown content.
+// Built-in AST rules run first (byte-range edits), then discovered plugins
+// (full-text pipe), followed by the LLM rewriter when tier=llm.
 func Compress(content []byte, opts Options) (Result, error) {
 	tier := opts.Tier
 	if tier == 0 {
@@ -42,6 +44,22 @@ func Compress(content []byte, opts Options) (Result, error) {
 			rulesFired[rule.Name()] = changeSet.Stats.NodesAffected
 		}
 		output = render.ApplyEdits(output, changeSet.Edits)
+	}
+
+	pluginRules := rules.PluginRulesForTier(rules.Tier(tier))
+	for _, plugin := range pluginRules {
+		name := plugin.Name()
+		if (disabled[name] || rules.DefaultDisabled(name)) && !enabled[name] {
+			continue
+		}
+		transformed, stats, err := rules.PluginApply(plugin, output)
+		if err != nil {
+			continue
+		}
+		if stats.NodesAffected > 0 {
+			rulesFired[name] = stats.NodesAffected
+		}
+		output = transformed
 	}
 
 	var llmStats LLMRewriteStats
