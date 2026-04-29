@@ -11,6 +11,7 @@ import (
 	"time"
 
 	mdcache "github.com/dhruv1794/mdcompress/pkg/cache"
+	"github.com/dhruv1794/mdcompress/pkg/compress"
 	"github.com/dhruv1794/mdcompress/pkg/manifest"
 )
 
@@ -433,6 +434,74 @@ hooks:
 	}
 	if cfg.Threshold != 0.91 || cfg.QuestionsPerDoc != 7 || cfg.Seeds != 3 {
 		t.Fatalf("unexpected numeric config: %#v", cfg)
+	}
+}
+
+func TestReadProjectConfigRulesAndTier(t *testing.T) {
+	chdirTemp(t)
+	if err := os.MkdirAll(".mdcompress", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(".mdcompress", "config.yaml"), []byte(`version: 1
+tier: aggressive
+rules:
+  enabled:
+    - collapse-example-output
+  disabled:
+    - dedup-cross-section
+eval:
+  backend: ollama
+  model: llama3.1:8b
+  threshold: 0.95
+  questions_per_doc: 10
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := readProjectConfig(filepath.Join(".mdcompress", "config.yaml"))
+	if cfg.TierName != "aggressive" {
+		t.Fatalf("TierName = %q, want aggressive", cfg.TierName)
+	}
+	if !reflect.DeepEqual(cfg.EnabledRules, []string{"collapse-example-output"}) {
+		t.Fatalf("EnabledRules = %#v", cfg.EnabledRules)
+	}
+	if !reflect.DeepEqual(cfg.DisabledRules, []string{"dedup-cross-section"}) {
+		t.Fatalf("DisabledRules = %#v", cfg.DisabledRules)
+	}
+	if cfg.Eval.Backend != "ollama" || cfg.Eval.Model != "llama3.1:8b" || cfg.Eval.Threshold != 0.95 || cfg.Eval.QuestionsPerDoc != 10 {
+		t.Fatalf("Eval = %#v", cfg.Eval)
+	}
+}
+
+func TestDefaultConfigYAMLUsesAggressiveWithRiskyRulesDisabled(t *testing.T) {
+	for _, want := range []string{
+		"tier: aggressive",
+		"    - dedup-cross-section",
+		"    - collapse-example-output",
+		"  threshold: 0.95",
+		"  questions_per_doc: 10",
+	} {
+		if !strings.Contains(defaultConfigYAML, want) {
+			t.Fatalf("defaultConfigYAML missing %q:\n%s", want, defaultConfigYAML)
+		}
+	}
+}
+
+func TestCompressionOptionsFromConfigUsesAggressiveTierAndDisabledDefaults(t *testing.T) {
+	chdirTemp(t)
+	if err := os.MkdirAll(".mdcompress", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(".mdcompress", "config.yaml"), []byte(defaultConfigYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := compressionOptionsFromConfig(filepath.Join(".mdcompress", "config.yaml"))
+	if opts.Tier != compress.TierAggressive {
+		t.Fatalf("Tier = %s, want aggressive", opts.Tier)
+	}
+	if !reflect.DeepEqual(opts.DisabledRules, []string{"dedup-cross-section", "collapse-example-output"}) {
+		t.Fatalf("DisabledRules = %#v", opts.DisabledRules)
 	}
 }
 

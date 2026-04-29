@@ -27,6 +27,7 @@ func Run(opts Options) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	enabled := enabledRulesFor(opts.Rule)
 
 	report := Report{
 		GeneratedAt:     time.Now().UTC(),
@@ -41,7 +42,7 @@ func Run(opts Options) (Report, error) {
 	}
 
 	for _, path := range paths {
-		file, err := runFile(opts, path, disabled)
+		file, err := runFile(opts, path, disabled, enabled)
 		if err != nil {
 			return report, err
 		}
@@ -71,13 +72,14 @@ func normalizeOptions(opts Options) Options {
 	return opts
 }
 
-func runFile(opts Options, path string, disabled []string) (FileResult, error) {
+func runFile(opts Options, path string, disabled []string, enabled []string) (FileResult, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return FileResult{}, err
 	}
 	result, err := compress.Compress(content, compress.Options{
 		Tier:          opts.Tier,
+		EnabledRules:  enabled,
 		DisabledRules: disabled,
 	})
 	if err != nil {
@@ -131,6 +133,13 @@ func runFile(opts Options, path string, disabled []string) (FileResult, error) {
 	file.AverageScore = averageQuestionScore(file.Questions)
 	file.Passed = file.AverageScore >= opts.Threshold
 	return file, nil
+}
+
+func enabledRulesFor(onlyRule string) []string {
+	if strings.TrimSpace(onlyRule) == "" {
+		return nil
+	}
+	return []string{strings.TrimSpace(onlyRule)}
 }
 
 func disabledRulesFor(onlyRule string) ([]string, error) {

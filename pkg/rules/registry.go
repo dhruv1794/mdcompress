@@ -8,8 +8,15 @@ var allRules = []Rule{
 	&TrailingCTA{},
 	&MarketingProse{},
 	&HedgingPhrases{},
+	&DedupCrossSection{},
 	&BenchmarkProse{},
+	&ExampleOutput{},
 	&BlankLines{},
+}
+
+// DefaultDisabled reports whether a rule is opt-in even when its tier is active.
+func DefaultDisabled(name string) bool {
+	return name == "collapse-example-output"
 }
 
 // AllRules returns every rule in fixed execution order.

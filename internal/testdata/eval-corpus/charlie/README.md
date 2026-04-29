@@ -1,5 +1,7 @@
 # Charlie
 
+Stable fact: Charlie listens on port `4318` by default.
+
 ## Contents
 
 - [Server](#server)
@@ -7,7 +9,7 @@
 
 ## Server
 
-Stable fact: charlie listens on port `4318` by default.
+Stable fact: Charlie listens on port `4318` by default and accepts OTLP traces from local collectors.
 
 ## Client
 

@@ -144,3 +144,61 @@ func TestCompressAggressiveTierStripsBenchmarkProse(t *testing.T) {
 		t.Fatalf("strip-benchmark-prose fired %d times", aggressive.RulesFired["strip-benchmark-prose"])
 	}
 }
+
+func TestCompressAggressiveTierDedupsCrossSectionClaim(t *testing.T) {
+	input := []byte("# Project\n\nProject stores cache files under `.project/cache`.\n\n## Cache\n\nProject stores cache files under `.project/cache` so repeated runs can reuse compressed mirrors across commands.\n")
+
+	safe, err := compress.Compress(input, compress.Options{Tier: compress.TierSafe})
+	if err != nil {
+		t.Fatalf("safe Compress() error = %v", err)
+	}
+	if !bytes.Equal(safe.Output, input) {
+		t.Fatalf("safe output = %q, want %q", safe.Output, input)
+	}
+
+	aggressive, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
+	if err != nil {
+		t.Fatalf("aggressive Compress() error = %v", err)
+	}
+	want := []byte("# Project\n\n## Cache\n\nProject stores cache files under `.project/cache` so repeated runs can reuse compressed mirrors across commands.\n")
+	if !bytes.Equal(aggressive.Output, want) {
+		t.Fatalf("aggressive output = %q, want %q", aggressive.Output, want)
+	}
+	if aggressive.RulesFired["dedup-cross-section"] != 1 {
+		t.Fatalf("dedup-cross-section fired %d times", aggressive.RulesFired["dedup-cross-section"])
+	}
+}
+
+func TestCompressAggressiveTierKeepsExampleOutputByDefault(t *testing.T) {
+	input := []byte("# Project\n\nRun `mdcompress --help`:\n\n```text\nUsage: mdcompress [command]\n\nFlags:\n  -h, --help      help for mdcompress\n```\n")
+
+	result, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
+	if err != nil {
+		t.Fatalf("Compress() error = %v", err)
+	}
+	if !bytes.Equal(result.Output, input) {
+		t.Fatalf("output = %q, want %q", result.Output, input)
+	}
+	if result.RulesFired["collapse-example-output"] != 0 {
+		t.Fatalf("collapse-example-output fired by default")
+	}
+}
+
+func TestCompressAggressiveTierStripsExampleOutputWhenEnabled(t *testing.T) {
+	input := []byte("# Project\n\nRun `mdcompress --help`:\n\n```text\nUsage: mdcompress [command]\n\nFlags:\n  -h, --help      help for mdcompress\n```\n")
+
+	result, err := compress.Compress(input, compress.Options{
+		Tier:         compress.TierAggressive,
+		EnabledRules: []string{"collapse-example-output"},
+	})
+	if err != nil {
+		t.Fatalf("Compress() error = %v", err)
+	}
+	want := []byte("# Project\n\nRun `mdcompress --help`:\n")
+	if !bytes.Equal(result.Output, want) {
+		t.Fatalf("output = %q, want %q", result.Output, want)
+	}
+	if result.RulesFired["collapse-example-output"] != 1 {
+		t.Fatalf("collapse-example-output fired %d times", result.RulesFired["collapse-example-output"])
+	}
+}
