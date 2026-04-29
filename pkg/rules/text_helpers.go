@@ -83,9 +83,23 @@ func addRange(changes *ChangeSet, removal render.Range) {
 	if removal.Start >= removal.End {
 		return
 	}
+	changes.Edits = append(changes.Edits, render.Edit{Start: removal.Start, End: removal.End})
 	changes.Ranges = append(changes.Ranges, removal)
 	changes.Stats.NodesAffected++
 	changes.Stats.BytesSaved += removal.End - removal.Start
+}
+
+func addReplacement(changes *ChangeSet, start, end int, replacement string) {
+	if start >= end {
+		return
+	}
+	changes.Edits = append(changes.Edits, render.Edit{
+		Start:       start,
+		End:         end,
+		Replacement: []byte(replacement),
+	})
+	changes.Stats.NodesAffected++
+	changes.Stats.BytesSaved += end - start - len(replacement)
 }
 
 func wordCount(text string) int {

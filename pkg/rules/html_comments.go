@@ -68,6 +68,7 @@ func isHTMLComment(content []byte) bool {
 
 func addCommentRemoval(source []byte, commentRange render.Range, changes *ChangeSet) {
 	removal := expandOwnLineRange(source, commentRange)
+	changes.Edits = append(changes.Edits, render.Edit{Start: removal.Start, End: removal.End})
 	changes.Ranges = append(changes.Ranges, removal)
 	changes.Stats.NodesAffected++
 	changes.Stats.BytesSaved += removal.End - removal.Start

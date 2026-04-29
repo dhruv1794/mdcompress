@@ -72,3 +72,51 @@ func TestCompressSafeTierRules(t *testing.T) {
 		})
 	}
 }
+
+func TestCompressAggressiveTierStripsMarketingProse(t *testing.T) {
+	input := []byte("# Project\n\nA production-ready Go library for markdown.\n\n## Usage\n\nRun it.\n")
+
+	safe, err := compress.Compress(input, compress.Options{Tier: compress.TierSafe})
+	if err != nil {
+		t.Fatalf("safe Compress() error = %v", err)
+	}
+	if !bytes.Equal(safe.Output, input) {
+		t.Fatalf("safe output = %q, want %q", safe.Output, input)
+	}
+
+	aggressive, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
+	if err != nil {
+		t.Fatalf("aggressive Compress() error = %v", err)
+	}
+	want := []byte("# Project\n\nA Go library for markdown.\n\n## Usage\n\nRun it.\n")
+	if !bytes.Equal(aggressive.Output, want) {
+		t.Fatalf("aggressive output = %q, want %q", aggressive.Output, want)
+	}
+	if aggressive.RulesFired["strip-marketing-prose"] != 1 {
+		t.Fatalf("strip-marketing-prose fired %d times", aggressive.RulesFired["strip-marketing-prose"])
+	}
+}
+
+func TestCompressAggressiveTierStripsHedgingPhrases(t *testing.T) {
+	input := []byte("# Project\n\nPlease note that users run mdcompress in order to refresh docs.\n")
+
+	safe, err := compress.Compress(input, compress.Options{Tier: compress.TierSafe})
+	if err != nil {
+		t.Fatalf("safe Compress() error = %v", err)
+	}
+	if !bytes.Equal(safe.Output, input) {
+		t.Fatalf("safe output = %q, want %q", safe.Output, input)
+	}
+
+	aggressive, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
+	if err != nil {
+		t.Fatalf("aggressive Compress() error = %v", err)
+	}
+	want := []byte("# Project\n\nUsers run mdcompress to refresh docs.\n")
+	if !bytes.Equal(aggressive.Output, want) {
+		t.Fatalf("aggressive output = %q, want %q", aggressive.Output, want)
+	}
+	if aggressive.RulesFired["strip-hedging-phrases"] != 2 {
+		t.Fatalf("strip-hedging-phrases fired %d times", aggressive.RulesFired["strip-hedging-phrases"])
+	}
+}

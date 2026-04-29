@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -93,6 +94,11 @@ func runFile(opts Options, path string, disabled []string) (FileResult, error) {
 		TokensAfter:  result.TokensAfter,
 		TokensSaved:  result.TokensSaved(),
 		RulesFired:   result.RulesFired,
+	}
+	if bytes.Equal(content, result.Output) {
+		file.AverageScore = 1
+		file.Passed = true
+		return file, nil
 	}
 
 	for seed := 0; seed < opts.Seeds; seed++ {

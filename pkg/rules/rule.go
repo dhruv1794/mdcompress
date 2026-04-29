@@ -47,8 +47,9 @@ type Stats struct {
 	BytesSaved    int
 }
 
-// ChangeSet describes source ranges removed by a rule.
+// ChangeSet describes source edits made by a rule.
 type ChangeSet struct {
+	Edits  []render.Edit
 	Ranges []render.Range
 	Stats  Stats
 }
