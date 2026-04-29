@@ -1,0 +1,24 @@
+{
+  "repos": [
+    {"name": "React",                 "url": "https://github.com/facebook/react"},
+    {"name": "FastAPI",               "url": "https://github.com/fastapi/fastapi"},
+    {"name": "Kubernetes",           "url": "https://github.com/kubernetes/kubernetes"},
+    {"name": "Terraform",            "url": "https://github.com/hashicorp/terraform"},
+    {"name": "Express",              "url": "https://github.com/expressjs/express"},
+    {"name": "Node.js",              "url": "https://github.com/nodejs/node"},
+    {"name": "TypeScript",           "url": "https://github.com/microsoft/TypeScript"},
+    {"name": "Python (CPython)",     "url": "https://github.com/python/cpython"},
+    {"name": "TensorFlow",           "url": "https://github.com/tensorflow/tensorflow"},
+    {"name": "PyTorch",              "url": "https://github.com/pytorch/pytorch"},
+    {"name": "Next.js",              "url": "https://github.com/vercel/next.js"},
+    {"name": "Svelte",               "url": "https://github.com/sveltejs/svelte"},
+    {"name": "Vue.js",               "url": "https://github.com/vuejs/vue"},
+    {"name": "Laravel",              "url": "https://github.com/laravel/laravel"},
+    {"name": "Rails",                "url": "https://github.com/rails/rails"},
+    {"name": "Django",               "url": "https://github.com/django/django"},
+    {"name": "Go",                   "url": "https://github.com/golang/go"},
+    {"name": "Docker",               "url": "https://github.com/docker/docker"},
+    {"name": "Rust",                 "url": "https://github.com/rust-lang/rust"},
+    {"name": "VS Code",              "url": "https://github.com/microsoft/vscode"}
+  ]
+}

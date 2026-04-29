@@ -1,0 +1,114 @@
+name: Benchmark & Deploy Pages
+on:
+  schedule:
+    - cron: '0 6 * * 1'           # every Monday 06:00 UTC
+  workflow_dispatch:               # manual trigger
+permissions:
+  contents: write
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Build mdcompress
+        run: go build -o mdcompress ./cmd/mdcompress
+
+      - name: Run benchmarks
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/bench
+          RESULTS_JSON=/tmp/bench/results.json
+          echo '[]' > "$RESULTS_JSON"
+
+          REPO_COUNT=$(jq '.repos | length' docs/benchmark-repos.json)
+          for i in $(seq 0 $((REPO_COUNT - 1))); do
+            NAME=$(jq -r ".repos[$i].name" docs/benchmark-repos.json)
+            URL=$(jq -r ".repos[$i].url" docs/benchmark-repos.json)
+            DIR="/tmp/bench/$(echo "$NAME" | tr '[:upper:] ' '[:lower:]_')"
+            echo "::group::$NAME ($URL)"
+
+            rm -rf "$DIR"
+            git clone --depth 1 --quiet "$URL" "$DIR" 2>/dev/null || {
+              echo "SKIP: clone failed for $NAME"
+              echo "::endgroup::"
+              continue
+            }
+
+            cd "$DIR"
+            mkdir -p .mdcompress
+
+            # Tier-1 (safe)
+            cat > .mdcompress/config.yaml <<'YAML'
+      version: 1
+      tier: safe
+      rules:
+        disabled: []
+      YAML
+            TIER1_BEFORE=0; TIER1_AFTER=0; TIER1_FILES=0; TIER1_RULES='{}'
+            ../mdcompress run --all 2>/dev/null || true
+            if [ -f .mdcompress/manifest.json ]; then
+              TIER1_BEFORE=$(jq '.totals.tokens_before' .mdcompress/manifest.json)
+              TIER1_AFTER=$(jq '.totals.tokens_after' .mdcompress/manifest.json)
+              TIER1_FILES=$(jq '.totals.files' .mdcompress/manifest.json)
+              TIER1_RULES=$(jq '[.entries | to_entries | .[].value.rules_fired] | add' .mdcompress/manifest.json)
+            fi
+
+            # Tier-2 (aggressive)
+            cat > .mdcompress/config.yaml <<'YAML'
+      version: 1
+      tier: aggressive
+      rules:
+        disabled:
+          - dedup-cross-section
+          - collapse-example-output
+      YAML
+            rm -rf .mdcompress/cache .mdcompress/manifest.json
+            TIER2_BEFORE=0; TIER2_AFTER=0; TIER2_RULES='{}'
+            ../mdcompress run --all 2>/dev/null || true
+            if [ -f .mdcompress/manifest.json ]; then
+              TIER2_BEFORE=$(jq '.totals.tokens_before' .mdcompress/manifest.json)
+              TIER2_AFTER=$(jq '.totals.tokens_after' .mdcompress/manifest.json)
+              TIER2_RULES=$(jq '[.entries | to_entries | .[].value.rules_fired] | add' .mdcompress/manifest.json)
+            fi
+
+            # README-only (aggressive tier)
+            README_BEFORE=0; README_AFTER=0
+            README_PATH=$(find . -maxdepth 1 -iname 'readme.md' | head -1)
+            if [ -n "$README_PATH" ] && [ -f "$README_PATH" ]; then
+              README_STATS=$(../mdcompress compress --tier=aggressive --disable-rule=dedup-cross-section --disable-rule=collapse-example-output "$README_PATH" 2>&1 >/dev/null || true)
+              README_BEFORE=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $2}' | tr -d '->')
+              README_AFTER=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $3}')
+            fi
+
+            cd -
+
+            jq --arg name "$NAME" --argjson t1b "$TIER1_BEFORE" --argjson t1a "$TIER1_AFTER" \
+               --argjson t1f "$TIER1_FILES" --argjson t2b "$TIER2_BEFORE" --argjson t2a "$TIER2_AFTER" \
+               --argjson rb "$README_BEFORE" --argjson ra "$README_AFTER" \
+               --argjson t1r "${TIER1_RULES:-{}}" --argjson t2r "${TIER2_RULES:-{}}" \
+               '. += [{name:$name, tier1_before:$t1b, tier1_after:$t1a, tier1_files:$t1f, tier2_before:$t2b, tier2_after:$t2a, readme_before:$rb, readme_after:$ra, tier1_rules:$t1r, tier2_rules:$t2r}]' \
+               "$RESULTS_JSON" > /tmp/bench/tmp.json && mv /tmp/bench/tmp.json "$RESULTS_JSON"
+
+            echo "::endgroup::"
+          done
+
+          cp "$RESULTS_JSON" docs/site/public/benchmark-data.json
+
+      - name: Build React site
+        run: |
+          npm ci
+          npm run build
+        working-directory: docs/site
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: docs/_site
+          publish_branch: gh-pages
+          force_orphan: true

@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mdcompress — Test</title>
+<style>
+:root{
+  --bg:#08090b;--card-bg:#101215;--border:#1e2130;--text:#e8eaed;
+  --muted:#7b808a;--purple:#a78bfa;--teal:#2dd4bf;--amber:#fbbf24;
+  --red:#f87171;--green:#34d399;--input-bg:#0d0e12;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh}
+.wrap{max-width:1400px;margin:0 auto;padding:1.5rem}
+h1{font-size:1.4rem;font-weight:800;letter-spacing:-.03em;background:linear-gradient(135deg,var(--purple),var(--teal));-webkit-background-clip:text;background-clip:text;color:transparent;display:inline-block}
+h2{font-size:1rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem}
+.layout{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-top:1.5rem}
+@media(max-width:900px){.layout{grid-template-columns:1fr}}
+.card{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:1.25rem;box-shadow:0 0 0 1px rgba(255,255,255,.04),0 4px 24px rgba(0,0,0,.5)}
+.panel-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem}
+textarea{width:100%;min-height:280px;background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:.75rem;font-family:"SF Mono",Menlo,monospace;font-size:.8rem;line-height:1.5;resize:vertical;outline:none}
+textarea:focus{border-color:var(--purple)}
+.controls{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin-bottom:.75rem}
+.controls label{font-size:.75rem;color:var(--muted)}
+select{background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.35em .6em;font-size:.8rem;outline:none}
+select:focus{border-color:var(--purple)}
+button{background:linear-gradient(135deg,var(--purple),#7c3aed);color:#fff;border:none;border-radius:8px;padding:.5em 1.25em;font-size:.8rem;font-weight:600;cursor:pointer;transition:opacity .2s}
+button:hover{opacity:.85}
+button:disabled{opacity:.4;cursor:default}
+.btn-paste{background:none;border:1px solid var(--border);color:var(--muted);padding:.35em .75em}
+.file-upload{position:relative}
+.file-upload input[type=file]{position:absolute;opacity:0;width:100%;height:100%;cursor:pointer}
+.file-upload label{display:inline-block;border:1px dashed var(--border);border-radius:8px;padding:.35em .75em;font-size:.75rem;color:var(--muted);cursor:pointer}
+.file-upload label:hover{border-color:var(--purple);color:var(--text)}
+
+/* Results */
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-bottom:1rem}
+.stat-mini{background:var(--input-bg);border:1px solid var(--border);border-radius:8px;padding:.75rem;text-align:center}
+.stat-mini .val{font-size:1.5rem;font-weight:800;letter-spacing:-.02em}
+.stat-mini .lbl{font-size:.65rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:.15rem}
+.purple .val{color:var(--purple)}.teal .val{color:var(--teal)}.amber .val{color:var(--amber)}.green .val{color:var(--green)}
+.bar-wrap{display:flex;align-items:center;gap:.5rem;margin-top:.25rem}
+.bar-track{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;transition:width .4s}
+.bar-fill.green{background:var(--green)}.bar-fill.teal{background:var(--teal)}
+.bar-fill.amber{background:var(--amber)}.bar-fill.red{background:var(--red)}
+
+.rule-list{max-height:320px;overflow-y:auto;margin-top:.5rem}
+.rule-row{display:flex;align-items:center;justify-content:space-between;padding:.35em .5em;border-bottom:1px solid rgba(255,255,255,.04);font-size:.8rem}
+.rule-row:hover{background:rgba(167,139,250,.03)}
+.rule-name{font-weight:600}
+.rule-stats{color:var(--muted);font-size:.75rem}
+.badge{display:inline-block;padding:.1em .4em;border-radius:4px;font-size:.65rem;font-weight:600;margin-left:.4em}
+.badge.safe{background:rgba(52,211,153,.12);color:var(--green)}
+.badge.aggressive{background:rgba(251,191,36,.12);color:var(--amber)}
+.badge.disabled{background:rgba(248,113,113,.12);color:var(--red)}
+.badge.active{background:rgba(167,139,250,.12);color:var(--purple)}
+.empty-state{text-align:center;color:var(--muted);padding:2rem;font-size:.85rem}
+
+.rule-toggles{max-height:260px;overflow-y:auto;margin-bottom:.75rem}
+.rule-toggle{display:flex;align-items:center;gap:.5rem;padding:.3em 0;font-size:.75rem;border-bottom:1px solid rgba(255,255,255,.03)}
+.rule-toggle input{margin:0}
+.rule-toggle label{flex:1;display:flex;align-items:center;gap:.4em;cursor:pointer}
+
+.output-box{background:var(--input-bg);border:1px solid var(--border);border-radius:8px;padding:.75rem;font-family:"SF Mono",Menlo,monospace;font-size:.75rem;line-height:1.5;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;margin-top:.5rem}
+.output-box:empty::after{content:"Compress to see output";color:var(--muted);font-family:system-ui}
+
+.tab-bar{display:flex;gap:0;margin-bottom:.75rem;border-bottom:1px solid var(--border)}
+.tab{padding:.35em .75em;font-size:.75rem;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:.2s}
+.tab.active{color:var(--purple);border-bottom-color:var(--purple)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>mdcompress test</h1>
+
+<div class="controls" style="margin-top:.75rem">
+  <label>Tier</label>
+  <select id="tier">
+    <option value="safe">Safe (Tier 1)</option>
+    <option value="aggressive" selected>Aggressive (Tier 2)</option>
+    <option value="llm">LLM (Tier 3)</option>
+  </select>
+  <button id="load-defaults" class="btn-paste">Reset rules</button>
+</div>
+
+<div class="layout">
+  <div class="card">
+    <div class="panel-header">
+      <h2>Input</h2>
+      <div style="display:flex;gap:.5rem;align-items:center">
+        <div class="file-upload">
+          <input type="file" id="file-input" accept=".md,.markdown,.txt">
+          <label>Upload .md</label>
+        </div>
+        <button id="paste-sample" class="btn-paste">Load sample</button>
+        <button id="compress-btn">Compress</button>
+      </div>
+    </div>
+    <textarea id="input-text" placeholder="Paste your markdown here, or upload a .md file..."></textarea>
+    <div class="rule-toggles" id="rule-toggles"></div>
+  </div>
+
+  <div class="card" id="results-panel">
+    <div class="panel-header"><h2>Results</h2></div>
+    <div class="empty-state" id="empty-state">Paste markdown and click <strong>Compress</strong> to see results.</div>
+    <div id="results-content" style="display:none">
+      <div class="tab-bar">
+        <div class="tab active" data-tab="summary">Summary</div>
+        <div class="tab" data-tab="rules">Per-Rule</div>
+        <div class="tab" data-tab="output">Output</div>
+        <div class="tab" data-tab="diff">What Changed</div>
+      </div>
+      <div class="tab-content active" data-tab="summary">
+        <div class="stat-row" id="stat-row"></div>
+        <div id="summary-text" style="font-size:.85rem;color:var(--muted)"></div>
+      </div>
+      <div class="tab-content" data-tab="rules">
+        <div class="rule-list" id="rule-list"></div>
+      </div>
+      <div class="tab-content" data-tab="output">
+        <div class="output-box" id="output-box"></div>
+      </div>
+      <div class="tab-content" data-tab="diff">
+        <div class="output-box" id="diff-box"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top:1.5rem;font-size:.7rem;color:var(--muted);text-align:center">
+  mdcompress test — local mode. Token counts use <code>cl100k_base</code> encoder.
+</p>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+
+let rules = [];
+
+async function loadRules() {
+  const res = await fetch('/api/rules');
+  rules = await res.json();
+  renderRuleToggles();
+}
+
+function renderRuleToggles() {
+  const tier = $('#tier').value;
+  const container = $('#rule-toggles');
+  const tiers = {safe:1,aggressive:2,llm:3};
+  const maxTier = tiers[tier] || 2;
+
+  container.innerHTML = rules.map(r => {
+    const ruleTier = {safe:1,aggressive:2,llm:3}[r.tier] || 2;
+    const applicable = ruleTier <= maxTier;
+    return `<div class="rule-toggle">
+      <input type="checkbox" value="${r.name}" ${r.default && applicable ? 'checked' : ''} ${!applicable ? 'disabled' : ''}>
+      <label>
+        <span class="badge ${r.tier}">${r.tier}</span>
+        ${r.name}
+      </label>
+    </div>`;
+  }).join('');
+}
+
+async function compress() {
+  const content = $('#input-text').value;
+  if (!content.trim()) return;
+
+  const tier = $('#tier').value;
+  const allToggles = $$('#rule-toggles input[type=checkbox]');
+  const disabled = [];
+  const enabled = [];
+  allToggles.forEach(cb => {
+    if (!cb.disabled && !cb.checked) disabled.push(cb.value);
+    if (cb.checked) enabled.push(cb.value);
+  });
+
+  $('#compress-btn').disabled = true;
+  $('#compress-btn').textContent = 'Compressing...';
+
+  try {
+    const res = await fetch('/api/compress', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content, tier, disabled, enabled})
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      alert('Error: ' + err);
+      return;
+    }
+    const data = await res.json();
+    renderResults(data, content);
+  } catch(e) {
+    alert('Failed to connect. Is the server running? ' + e.message);
+  } finally {
+    $('#compress-btn').disabled = false;
+    $('#compress-btn').textContent = 'Compress';
+  }
+}
+
+function renderResults(data, original) {
+  $('#empty-state').style.display = 'none';
+  $('#results-content').style.display = 'block';
+
+  const saved = data.tokens_before - data.tokens_after;
+  const pct = data.tokens_before > 0 ? (saved / data.tokens_before * 100) : 0;
+  const byteSaved = data.bytes_before - data.bytes_after;
+  const bytePct = data.bytes_before > 0 ? (byteSaved / data.bytes_before * 100) : 0;
+
+  $('#stat-row').innerHTML = [
+    {cls:'purple',val:fmt(data.tokens_before),lbl:'Tokens Before'},
+    {cls:'teal',val:fmt(data.tokens_after),lbl:'Tokens After'},
+    {cls:'green',val:fmt(saved)+' ('+pct.toFixed(1)+'%)',lbl:'Tokens Saved'},
+    {cls:'amber',val:fmt(byteSaved)+' ('+bytePct.toFixed(1)+'%)',lbl:'Bytes Saved'},
+  ].map(s=>`<div class="stat-mini ${s.cls}"><div class="val">${s.val}</div><div class="lbl">${s.lbl}</div></div>`).join('');
+
+  const cost = (saved / 1_000_000 * 3).toFixed(3);
+  $('#summary-text').innerHTML = `
+    <div class="bar-wrap">
+      <span>Reduction ${pct.toFixed(1)}%</span>
+      <span class="bar-track"><span class="bar-fill ${pctClass(pct)}" style="width:${Math.min(pct*3,100)}px"></span></span>
+    </div>
+    <div style="margin-top:.5rem">Estimated cost savings: ~$${cost} (Sonnet $3/MTok input)</div>
+  `;
+
+  const ruleEntries = Object.entries(data.rules_fired || {}).sort((a,b)=>b[1]-a[1]);
+  if (ruleEntries.length === 0) {
+    $('#rule-list').innerHTML = '<div class="empty-state">No rules fired — content unchanged.</div>';
+  } else {
+    const total = ruleEntries.reduce((s,e)=>s+e[1],0);
+    $('#rule-list').innerHTML = ruleEntries.map(([name,count]) => {
+      const rpct = total > 0 ? (count/total*100).toFixed(1) : '0.0';
+      const rule = rules.find(r=>r.name===name);
+      const tier = rule ? rule.tier : 'safe';
+      return `<div class="rule-row">
+        <span class="rule-name">${name}<span class="badge ${tier}">${tier}</span></span>
+        <span class="rule-stats">${count} nodes (${rpct}%)</span>
+      </div>`;
+    }).join('');
+  }
+
+  $('#output-box').textContent = data.output || '(empty output)';
+
+  // Simple diff - show removed lines
+  const origLines = original.split('\n');
+  const outLines = (data.output || '').split('\n');
+  const outSet = new Set(outLines.map(l=>l.trim()).filter(l=>l));
+  const removed = origLines.map((l,i) => {
+    const t = l.trim();
+    if (!t) return null;
+    if (!outSet.has(t)) return {line:i+1, text:l};
+    return null;
+  }).filter(Boolean);
+
+  if (removed.length === 0) {
+    $('#diff-box').innerHTML = '<span style="color:var(--muted)">No removed content detected (or content was shortened rather than removed).</span>';
+  } else {
+    $('#diff-box').innerHTML = '<div style="margin-bottom:.5rem;color:var(--muted);font-size:.7rem">' + removed.length + ' lines potentially removed/modified:</div>' +
+      removed.map(r=>`<div style="margin-bottom:2px"><span style="color:var(--red)">-</span> <span style="color:var(--muted)">L${r.line}:</span> <span style="color:var(--text)">${esc(r.text)}</span></div>`).join('');
+  }
+}
+
+function pctClass(p) { return p >= 20 ? 'green' : p >= 10 ? 'teal' : p >= 5 ? 'amber' : 'red'; }
+function fmt(n) { return n.toLocaleString(); }
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// Tabs
+$$('.tab').forEach(t => t.onclick = () => {
+  const tab = t.dataset.tab;
+  $$('.tab').forEach(x => x.classList.remove('active'));
+  $$('.tab-content').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  $(`.tab-content[data-tab="${tab}"]`).classList.add('active');
+});
+
+// File upload
+$('#file-input').onchange = async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  $('#input-text').value = text;
+};
+
+$('#compress-btn').onclick = compress;
+$('#tier').onchange = renderRuleToggles;
+$('#load-defaults').onclick = () => { renderRuleToggles(); };
+
+$('#paste-sample').onclick = () => {
+  $('#input-text').value = `---
+title: Getting Started
+description: Learn how to use the API
+author: Developer
+version: 2.0
+---
+
+# Getting Started
+
+<!-- This is an HTML comment that should be stripped -->
+<!-- Another one -->
+
+[![Build Status](https://img.shields.io/github/workflow/status/org/repo/CI)](https://github.com/org/repo/actions)
+[![NPM Version](https://img.shields.io/npm/v/package)](https://npmjs.com/package)
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Usage](#usage)
+- [API](#api)
+- [Contributing](#contributing)
+
+## Overview
+
+Welcome to our blazing fast, production-ready library! It is worth noting that this
+library is loved by developers and battle-tested in production environments. We offer
+a feature-rich, cutting-edge solution that is both elegant and delightful to use.
+
+## Installation
+
+\`\`\`bash
+npm install my-library
+\`\`\`
+
+**Note:** This library requires Node.js 18 or later.
+**Important:** Make sure to set up your API key before starting.
+
+## Usage
+
+See the [API Reference](#api) section for more details.
+For more information, visit the [documentation](https://docs.example.com).
+
+> **Warning:** This is a breaking change.
+> **Tip:** Use the \`--debug\` flag for verbose output.
+
+## Contributing
+Contributions are welcome! Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+**Last updated:** April 2026
+**Version:** 2.0.0
+
+---
+
+*Star us on GitHub! Follow us on Twitter!*
+`;
+};
+
+loadRules();
+</script>
+</body>
+</html>
