@@ -44,6 +44,15 @@ func Compress(content []byte, opts Options) (Result, error) {
 		output = render.ApplyEdits(output, changeSet.Edits)
 	}
 
+	var llmStats LLMRewriteStats
+	if Tier(tier) == TierLLM && opts.LLMRewriter != nil {
+		rewritten, stats, err := opts.LLMRewriter.Rewrite(output)
+		if err == nil {
+			output = rewritten
+		}
+		llmStats = stats
+	}
+
 	return Result{
 		Output:       output,
 		TokensBefore: tokens.Count(content),
@@ -51,6 +60,7 @@ func Compress(content []byte, opts Options) (Result, error) {
 		BytesBefore:  len(content),
 		BytesAfter:   len(output),
 		RulesFired:   rulesFired,
+		LLM:          llmStats,
 	}, nil
 }
 

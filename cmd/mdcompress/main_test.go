@@ -487,6 +487,66 @@ func TestDefaultConfigYAMLUsesAggressiveWithRiskyRulesDisabled(t *testing.T) {
 	}
 }
 
+func TestReadProjectConfigParsesLLMBlock(t *testing.T) {
+	chdirTemp(t)
+	if err := os.MkdirAll(".mdcompress", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(".mdcompress", "config.yaml"), []byte(`version: 1
+tier: llm
+llm:
+  backend: anthropic
+  model: claude-haiku-4-5-20251001
+  endpoint: https://api.anthropic.com/v1
+  api_key_env: ANTHROPIC_API_KEY
+  cache: true
+  threshold: 0.97
+  min_section_tokens: 150
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := readProjectConfig(filepath.Join(".mdcompress", "config.yaml"))
+	if cfg.TierName != "llm" {
+		t.Fatalf("TierName = %q, want llm", cfg.TierName)
+	}
+	if cfg.LLM.Backend != "anthropic" {
+		t.Fatalf("LLM.Backend = %q", cfg.LLM.Backend)
+	}
+	if cfg.LLM.Model != "claude-haiku-4-5-20251001" {
+		t.Fatalf("LLM.Model = %q", cfg.LLM.Model)
+	}
+	if cfg.LLM.APIKeyEnv != "ANTHROPIC_API_KEY" {
+		t.Fatalf("LLM.APIKeyEnv = %q", cfg.LLM.APIKeyEnv)
+	}
+	if !cfg.LLM.Cache {
+		t.Fatalf("LLM.Cache should be true")
+	}
+	if cfg.LLM.Threshold != 0.97 {
+		t.Fatalf("LLM.Threshold = %v", cfg.LLM.Threshold)
+	}
+	if cfg.LLM.MinSectionTokens != 150 {
+		t.Fatalf("LLM.MinSectionTokens = %d", cfg.LLM.MinSectionTokens)
+	}
+}
+
+func TestBuildLLMRewriterNilBelowTier3(t *testing.T) {
+	rewriter, err := buildLLMRewriter(compress.TierAggressive, llmConfig{Backend: "ollama"})
+	if err != nil {
+		t.Fatalf("buildLLMRewriter: %v", err)
+	}
+	if rewriter != nil {
+		t.Fatalf("rewriter should be nil for non-LLM tier")
+	}
+}
+
+func TestBuildLLMRewriterRejectsUnknownBackend(t *testing.T) {
+	_, err := buildLLMRewriter(compress.TierLLM, llmConfig{Backend: "bogus"})
+	if err == nil {
+		t.Fatalf("expected error for unknown backend")
+	}
+}
+
 func TestCompressionOptionsFromConfigUsesAggressiveTierAndDisabledDefaults(t *testing.T) {
 	chdirTemp(t)
 	if err := os.MkdirAll(".mdcompress", 0o755); err != nil {
