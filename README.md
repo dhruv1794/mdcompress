@@ -83,6 +83,13 @@ mdcompress eval --json-out=.mdcompress/eval.json --markdown-out=.mdcompress/eval
 Configuration can live in `.mdcompress/config.yaml`:
 
 ```yaml
+version: 1
+tier: aggressive
+rules:
+  enabled: []
+  disabled:
+    - dedup-cross-section
+    - collapse-example-output
 eval:
   backend: ollama
   model: llama3.1:8b

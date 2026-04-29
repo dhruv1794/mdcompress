@@ -18,12 +18,13 @@ func Compress(content []byte, opts Options) (Result, error) {
 	output := content
 	rulesFired := make(map[string]int)
 	disabled := disabledRuleSet(opts.DisabledRules)
+	enabled := enabledRuleSet(opts.EnabledRules)
 	doc, err := parser.Parse(output)
 	if err != nil {
 		return Result{}, err
 	}
 	for _, rule := range rules.RulesForTier(rules.Tier(tier)) {
-		if disabled[rule.Name()] {
+		if (disabled[rule.Name()] || rules.DefaultDisabled(rule.Name())) && !enabled[rule.Name()] {
 			continue
 		}
 		ctx := &rules.Context{
@@ -59,4 +60,12 @@ func disabledRuleSet(names []string) map[string]bool {
 		disabled[name] = true
 	}
 	return disabled
+}
+
+func enabledRuleSet(names []string) map[string]bool {
+	enabled := make(map[string]bool, len(names))
+	for _, name := range names {
+		enabled[name] = true
+	}
+	return enabled
 }

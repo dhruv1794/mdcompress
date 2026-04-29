@@ -44,5 +44,6 @@ func ParseTier(value string) (Tier, error) {
 // Options controls a compression run.
 type Options struct {
 	Tier          Tier
+	EnabledRules  []string
 	DisabledRules []string
 }

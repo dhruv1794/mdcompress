@@ -53,6 +53,7 @@ func runCommand() *cobra.Command {
 	var changed bool
 	var noStaleCheck bool
 	var quiet bool
+	var enabledRules []string
 	var disabledRules []string
 	var tier string
 
@@ -61,7 +62,7 @@ func runCommand() *cobra.Command {
 		Short: "Compress markdown files into the hidden cache mirror",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			parsedTier, err := compress.ParseTier(tier)
+			compressOpts, err := compressionOptionsFromFlags(cmd, tier, enabledRules, disabledRules)
 			if err != nil {
 				return err
 			}
@@ -71,10 +72,7 @@ func runCommand() *cobra.Command {
 				Staged:       staged,
 				Changed:      changed,
 				NoStaleCheck: noStaleCheck,
-				Compress: compress.Options{
-					Tier:          parsedTier,
-					DisabledRules: disabledRules,
-				},
+				Compress:     compressOpts,
 			})
 			if err != nil {
 				return err
@@ -92,7 +90,8 @@ func runCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&changed, "changed", false, "compress markdown files changed by the last merge")
 	cmd.Flags().BoolVar(&noStaleCheck, "no-stale-check", false, "when run without paths, skip automatic stale cache refresh")
 	cmd.Flags().BoolVar(&quiet, "quiet", false, "suppress non-error output")
-	cmd.Flags().StringVar(&tier, "tier", compress.TierSafe.String(), "compression tier: safe, aggressive, llm")
+	cmd.Flags().StringVar(&tier, "tier", "", "compression tier: safe, aggressive, llm (default: config tier or safe)")
+	cmd.Flags().StringSliceVar(&enabledRules, "enable-rule", nil, "opt-in rule to enable; may be repeated")
 	cmd.Flags().StringSliceVar(&disabledRules, "disable-rule", nil, "rule to disable; may be repeated")
 	return cmd
 }
@@ -195,7 +194,12 @@ Use --rule to isolate one registered rule by disabling all others for the run.`,
 			if !flags.Changed("seeds") {
 				seeds = evalCfg.Seeds
 			}
-			parsedTier, err := compress.ParseTier(tier)
+			projectCfg := readProjectConfig(".mdcompress/config.yaml")
+			tierValue := tier
+			if !flags.Changed("tier") {
+				tierValue = projectCfg.TierName
+			}
+			parsedTier, err := compress.ParseTier(tierValue)
 			if err != nil {
 				return err
 			}
@@ -241,7 +245,7 @@ Use --rule to isolate one registered rule by disabling all others for the run.`,
 
 	cmd.Flags().StringVar(&repo, "repo", ".", "repository or directory to evaluate")
 	cmd.Flags().StringVar(&rule, "rule", "", "evaluate a single rule by disabling all other registered rules")
-	cmd.Flags().StringVar(&tier, "tier", compress.TierSafe.String(), "compression tier: safe, aggressive, llm")
+	cmd.Flags().StringVar(&tier, "tier", "", "compression tier: safe, aggressive, llm (default: config tier or safe)")
 	cmd.Flags().StringVar(&backendName, "backend", "", "LLM backend: ollama, anthropic, openai")
 	cmd.Flags().StringVar(&model, "model", "", "LLM model name")
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "LLM backend endpoint")
@@ -293,63 +297,191 @@ type evalConfig struct {
 	Seeds           int
 }
 
-func readEvalConfig(path string) evalConfig {
-	cfg := evalConfig{
-		Backend:         mdeval.DefaultBackend,
-		Threshold:       mdeval.DefaultThreshold,
-		QuestionsPerDoc: mdeval.DefaultQuestionsPerDoc,
-		Seeds:           mdeval.DefaultSeeds,
+type projectConfig struct {
+	TierName      string
+	EnabledRules  []string
+	DisabledRules []string
+	Eval          evalConfig
+}
+
+func defaultProjectConfig() projectConfig {
+	return projectConfig{
+		TierName:      compress.TierSafe.String(),
+		DisabledRules: defaultDisabledRules(),
+		Eval: evalConfig{
+			Backend:         mdeval.DefaultBackend,
+			Threshold:       mdeval.DefaultThreshold,
+			QuestionsPerDoc: mdeval.DefaultQuestionsPerDoc,
+			Seeds:           mdeval.DefaultSeeds,
+		},
 	}
+}
+
+func readProjectConfig(path string) projectConfig {
+	cfg := defaultProjectConfig()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return cfg
 	}
 
-	inEval := false
+	section := ""
+	ruleList := ""
 	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
 		indented := strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
-		trimmed := strings.TrimSpace(line)
-		if !inEval {
-			if trimmed == "eval:" {
-				inEval = true
-			}
-			continue
-		}
 		if !indented {
-			break
+			section = ""
+			ruleList = ""
 		}
-		key, value, ok := strings.Cut(trimmed, ":")
-		if !ok {
+
+		switch {
+		case !indented && strings.HasPrefix(trimmed, "tier:"):
+			cfg.TierName = trimConfigValue(strings.TrimSpace(strings.TrimPrefix(trimmed, "tier:")))
+			continue
+		case !indented && trimmed == "rules:":
+			section = "rules"
+			continue
+		case !indented && trimmed == "eval:":
+			section = "eval"
 			continue
 		}
-		value = strings.Trim(strings.TrimSpace(value), `"'`)
-		switch strings.TrimSpace(key) {
-		case "backend":
-			cfg.Backend = value
-		case "model":
-			cfg.Model = value
-		case "endpoint":
-			cfg.Endpoint = value
-		case "api_key_env":
-			cfg.APIKeyEnv = value
-		case "threshold":
-			if parsed, err := strconv.ParseFloat(value, 64); err == nil {
-				cfg.Threshold = parsed
+
+		if section == "rules" {
+			if strings.HasPrefix(trimmed, "enabled:") {
+				ruleList = "enabled"
+				cfg.EnabledRules = parseInlineConfigList(strings.TrimSpace(strings.TrimPrefix(trimmed, "enabled:")))
+				continue
 			}
-		case "questions_per_doc":
-			if parsed, err := strconv.Atoi(value); err == nil {
-				cfg.QuestionsPerDoc = parsed
+			if strings.HasPrefix(trimmed, "disabled:") {
+				ruleList = "disabled"
+				values := parseInlineConfigList(strings.TrimSpace(strings.TrimPrefix(trimmed, "disabled:")))
+				cfg.DisabledRules = values
+				continue
 			}
-		case "seeds":
-			if parsed, err := strconv.Atoi(value); err == nil {
-				cfg.Seeds = parsed
+			if strings.HasPrefix(trimmed, "- ") {
+				value := trimConfigValue(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+				if value == "" {
+					continue
+				}
+				switch ruleList {
+				case "enabled":
+					cfg.EnabledRules = append(cfg.EnabledRules, value)
+				case "disabled":
+					cfg.DisabledRules = append(cfg.DisabledRules, value)
+				}
+			}
+			continue
+		}
+
+		if section == "eval" {
+			key, value, ok := strings.Cut(trimmed, ":")
+			if !ok {
+				continue
+			}
+			value = trimConfigValue(value)
+			switch strings.TrimSpace(key) {
+			case "backend":
+				cfg.Eval.Backend = value
+			case "model":
+				cfg.Eval.Model = value
+			case "endpoint":
+				cfg.Eval.Endpoint = value
+			case "api_key_env":
+				cfg.Eval.APIKeyEnv = value
+			case "threshold":
+				if parsed, err := strconv.ParseFloat(value, 64); err == nil {
+					cfg.Eval.Threshold = parsed
+				}
+			case "questions_per_doc":
+				if parsed, err := strconv.Atoi(value); err == nil {
+					cfg.Eval.QuestionsPerDoc = parsed
+				}
+			case "seeds":
+				if parsed, err := strconv.Atoi(value); err == nil {
+					cfg.Eval.Seeds = parsed
+				}
 			}
 		}
 	}
 	return cfg
+}
+
+func readEvalConfig(path string) evalConfig {
+	return readProjectConfig(path).Eval
+}
+
+func compressionOptionsFromFlags(cmd *cobra.Command, tier string, enabledRules, disabledRules []string) (compress.Options, error) {
+	cfg := readProjectConfig(".mdcompress/config.yaml")
+	tierValue := cfg.TierName
+	if cmd.Flags().Changed("tier") {
+		tierValue = tier
+	}
+	parsedTier, err := compress.ParseTier(tierValue)
+	if err != nil {
+		return compress.Options{}, err
+	}
+	enabled := cfg.EnabledRules
+	if cmd.Flags().Changed("enable-rule") {
+		enabled = enabledRules
+	}
+	disabled := cfg.DisabledRules
+	if cmd.Flags().Changed("disable-rule") {
+		disabled = disabledRules
+	}
+	return compress.Options{
+		Tier:          parsedTier,
+		EnabledRules:  enabled,
+		DisabledRules: disabled,
+	}, nil
+}
+
+func compressionOptionsFromConfig(path string) compress.Options {
+	cfg := readProjectConfig(path)
+	tier, err := compress.ParseTier(cfg.TierName)
+	if err != nil {
+		tier = compress.TierSafe
+	}
+	return compress.Options{
+		Tier:          tier,
+		EnabledRules:  cfg.EnabledRules,
+		DisabledRules: cfg.DisabledRules,
+	}
+}
+
+func defaultDisabledRules() []string {
+	return []string{"dedup-cross-section", "collapse-example-output"}
+}
+
+func parseInlineConfigList(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if value == "[]" {
+		return []string{}
+	}
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		value = strings.TrimSuffix(strings.TrimPrefix(value, "["), "]")
+		if strings.TrimSpace(value) == "" {
+			return []string{}
+		}
+		parts := strings.Split(value, ",")
+		out := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if item := trimConfigValue(part); item != "" {
+				out = append(out, item)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func trimConfigValue(value string) string {
+	return strings.Trim(strings.TrimSpace(value), `"'`)
 }
 
 func writeEvalJSON(path string, report mdeval.Report) error {
@@ -486,11 +618,9 @@ func initCommand() *cobra.Command {
 				}
 			}
 			summary, err := runMarkdown(runOptions{
-				Args: []string{"."},
-				All:  true,
-				Compress: compress.Options{
-					Tier: compress.TierSafe,
-				},
+				Args:     []string{"."},
+				All:      true,
+				Compress: compressionOptionsFromConfig(".mdcompress/config.yaml"),
 			})
 			if err != nil {
 				return err
@@ -545,6 +675,7 @@ func versionCommand() *cobra.Command {
 }
 
 func compressCommand() *cobra.Command {
+	var enabledRules []string
 	var disabledRules []string
 	var tier string
 
@@ -558,15 +689,12 @@ func compressCommand() *cobra.Command {
 				return err
 			}
 
-			parsedTier, err := compress.ParseTier(tier)
+			compressOpts, err := compressionOptionsFromFlags(cmd, tier, enabledRules, disabledRules)
 			if err != nil {
 				return err
 			}
 
-			result, err := compress.Compress(content, compress.Options{
-				Tier:          parsedTier,
-				DisabledRules: disabledRules,
-			})
+			result, err := compress.Compress(content, compressOpts)
 			if err != nil {
 				return err
 			}
@@ -580,7 +708,8 @@ func compressCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&tier, "tier", compress.TierSafe.String(), "compression tier: safe, aggressive, llm")
+	cmd.Flags().StringVar(&tier, "tier", "", "compression tier: safe, aggressive, llm (default: config tier or safe)")
+	cmd.Flags().StringSliceVar(&enabledRules, "enable-rule", nil, "opt-in rule to enable; may be repeated")
 	cmd.Flags().StringSliceVar(&disabledRules, "disable-rule", nil, "rule to disable; may be repeated")
 	return cmd
 }
@@ -1064,11 +1193,9 @@ func fixDoctor() ([]string, error) {
 	manifestConsistent := checkManifestConsistency()
 	if cacheFresh.Status != doctorOK || manifestConsistent.Status != doctorOK {
 		if _, err := runMarkdown(runOptions{
-			Args: []string{"."},
-			All:  true,
-			Compress: compress.Options{
-				Tier: compress.TierSafe,
-			},
+			Args:     []string{"."},
+			All:      true,
+			Compress: compressionOptionsFromConfig(".mdcompress/config.yaml"),
 		}); err != nil {
 			return fixes, err
 		}
@@ -1776,10 +1903,12 @@ const preCommitFrameworkBlock = `# mdcompress
 `
 
 const defaultConfigYAML = `version: 1
-tier: safe
+tier: aggressive
 rules:
   enabled: []
-  disabled: []
+  disabled:
+    - dedup-cross-section
+    - collapse-example-output
 patterns:
   include:
     - "**/*.md"
