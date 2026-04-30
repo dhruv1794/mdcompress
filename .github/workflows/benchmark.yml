@@ -92,12 +92,19 @@ jobs:
               README_STATS=$(cd "$DIR" && "$MDCOMPRESS" compress --tier=aggressive --disable-rule=dedup-cross-section --disable-rule=collapse-example-output --disable-rule=strip-boilerplate-sections "$README_PATH" 2>&1 >/dev/null) || true
               README_BEFORE=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $2}' | sed 's/[->]*//g')
               README_AFTER=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $3}')
+              : ${README_BEFORE:=0}
+              : ${README_AFTER:=0}
             fi
+
+            # ensure all variables have valid JSON defaults before the jq call
+            : ${TIER1_BEFORE:=0}; : ${TIER1_AFTER:=0}; : ${TIER1_FILES:=0}; : ${TIER1_RULES:="{}"}
+            : ${TIER2_BEFORE:=0}; : ${TIER2_AFTER:=0}; : ${TIER2_RULES:="{}"}
+            : ${README_BEFORE:=0}; : ${README_AFTER:=0}
 
             jq --arg name "$NAME" --argjson t1b "$TIER1_BEFORE" --argjson t1a "$TIER1_AFTER" \
                --argjson t1f "$TIER1_FILES" --argjson t2b "$TIER2_BEFORE" --argjson t2a "$TIER2_AFTER" \
                --argjson rb "$README_BEFORE" --argjson ra "$README_AFTER" \
-               --argjson t1r "${TIER1_RULES:-{}}" --argjson t2r "${TIER2_RULES:-{}}" \
+               --argjson t1r "$TIER1_RULES" --argjson t2r "$TIER2_RULES" \
                '. += [{name:$name, tier1_before:$t1b, tier1_after:$t1a, tier1_files:$t1f, tier2_before:$t2b, tier2_after:$t2a, readme_before:$rb, readme_after:$ra, tier1_rules:$t1r, tier2_rules:$t2r}]' \
                "$RESULTS_JSON" > "$BENCHDIR/tmp.json" && mv "$BENCHDIR/tmp.json" "$RESULTS_JSON"
 
