@@ -45,9 +45,8 @@ jobs:
           echo '[]' > "$RESULTS_JSON"
 
           REPO_COUNT=$(jq '.repos | length' docs/benchmark-repos.json)
-          TEST_COUNT=2  # DEBUG: remove after debugging
           i=0
-          while [ "$i" -lt "$TEST_COUNT" ]; do
+          while [ "$i" -lt "$REPO_COUNT" ]; do
             NAME=$(jq -r ".repos[$i].name" docs/benchmark-repos.json)
             URL=$(jq -r ".repos[$i].url" docs/benchmark-repos.json)
             DIR="$BENCHDIR/$(echo "$NAME" | awk '{print tolower($0)}' | sed 's/ /_/g')"
@@ -74,7 +73,7 @@ jobs:
               TIER1_BEFORE=$(jq '.totals.tokens_before' "$DIR/.mdcompress/manifest.json")
               TIER1_AFTER=$(jq '.totals.tokens_after' "$DIR/.mdcompress/manifest.json")
               TIER1_FILES=$(jq '.totals.files' "$DIR/.mdcompress/manifest.json")
-              TIER1_RULES=$(jq '[.entries | to_entries | .[].value.rules_fired] | add' "$DIR/.mdcompress/manifest.json")
+              TIER1_RULES=$(jq -c '[.entries | to_entries | .[].value.rules_fired] | add' "$DIR/.mdcompress/manifest.json")
             fi
 
             # Tier-2 (aggressive)
@@ -84,7 +83,7 @@ jobs:
             if [ -f "$DIR/.mdcompress/manifest.json" ]; then
               TIER2_BEFORE=$(jq '.totals.tokens_before' "$DIR/.mdcompress/manifest.json")
               TIER2_AFTER=$(jq '.totals.tokens_after' "$DIR/.mdcompress/manifest.json")
-              TIER2_RULES=$(jq '[.entries | to_entries | .[].value.rules_fired] | add' "$DIR/.mdcompress/manifest.json")
+              TIER2_RULES=$(jq -c '[.entries | to_entries | .[].value.rules_fired] | add' "$DIR/.mdcompress/manifest.json")
             fi
 
             # README-only (aggressive tier)
@@ -92,7 +91,7 @@ jobs:
             if [ -n "$README_PATH" ] && [ -f "$DIR/$README_PATH" ]; then
               README_STATS=$(cd "$DIR" && "$MDCOMPRESS" compress --tier=aggressive --disable-rule=dedup-cross-section --disable-rule=collapse-example-output --disable-rule=strip-boilerplate-sections "$README_PATH" 2>&1 >/dev/null) || true
               README_BEFORE=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $2}' | sed 's/[->]*//g')
-              README_AFTER=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $3}')
+              README_AFTER=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $4}')
               : ${README_BEFORE:=0}
               : ${README_AFTER:=0}
             fi
@@ -101,10 +100,6 @@ jobs:
             : ${TIER1_BEFORE:=0}; : ${TIER1_AFTER:=0}; : ${TIER1_FILES:=0}; : ${TIER1_RULES:="{}"}
             : ${TIER2_BEFORE:=0}; : ${TIER2_AFTER:=0}; : ${TIER2_RULES:="{}"}
             : ${README_BEFORE:=0}; : ${README_AFTER:=0}
-
-            echo "DEBUG jq: t1b=[${TIER1_BEFORE}] t1a=[${TIER1_AFTER}] t1f=[${TIER1_FILES}] t1r=[${TIER1_RULES}]"
-            echo "DEBUG jq: t2b=[${TIER2_BEFORE}] t2a=[${TIER2_AFTER}] t2r=[${TIER2_RULES}]"
-            echo "DEBUG jq: rb=[${README_BEFORE}] ra=[${README_AFTER}] name=[${NAME}]"
 
             jq --arg name "$NAME" --argjson t1b "$TIER1_BEFORE" --argjson t1a "$TIER1_AFTER" \
                --argjson t1f "$TIER1_FILES" --argjson t2b "$TIER2_BEFORE" --argjson t2a "$TIER2_AFTER" \
