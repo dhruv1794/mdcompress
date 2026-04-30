@@ -17,6 +17,8 @@ func (r *MarketingProse) Tier() Tier   { return TierAggressive }
 var marketingPhrases = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\bblazing(?:ly)? fast\b`),
 	regexp.MustCompile(`(?i)\blightning fast\b`),
+	regexp.MustCompile(`(?i)\bsuper-?fast\b`),
+	regexp.MustCompile(`(?i)\bincredibly fast\b`),
 	regexp.MustCompile(`(?i)\bproduction-ready\b`),
 	regexp.MustCompile(`(?i)\bproduction-grade\b`),
 	regexp.MustCompile(`(?i)\bbattle-tested\b`),
@@ -33,6 +35,16 @@ var marketingPhrases = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\belegant\b`),
 	regexp.MustCompile(`(?i)\bbeautiful\b`),
 	regexp.MustCompile(`(?i)\bdelightful\b`),
+	regexp.MustCompile(`(?i)\bworld-class\b`),
+	regexp.MustCompile(`(?i)\bindustry-leading\b`),
+	regexp.MustCompile(`(?i)\benterprise-grade\b`),
+	regexp.MustCompile(`(?i)\bbest-in-class\b`),
+	regexp.MustCompile(`(?i)\bnext-generation\b`),
+	regexp.MustCompile(`(?i)\bseamless(?:ly)?\b`),
+	regexp.MustCompile(`(?i)\bintuitive\b`),
+	regexp.MustCompile(`(?i)\bunparalleled\b`),
+	regexp.MustCompile(`(?i)\bground-?breaking\b`),
+	regexp.MustCompile(`(?i)\brevolutionary\b`),
 }
 
 var marketingFeatureHeadingPattern = regexp.MustCompile(`(?i)\b(features?|highlights?|benefits?|why|overview)\b`)

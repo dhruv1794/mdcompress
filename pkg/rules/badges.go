@@ -199,6 +199,19 @@ func isBadgeURL(url string) bool {
 		"app.codacy.com/project/badge",
 		"snyk.io/test/",
 		"sonarcloud.io/api/project_badges",
+		"app.wercker.com",
+		"ci.appveyor.com",
+		"api.cirrus-ci.com",
+		"semaphoreci.com",
+		"drone.io",
+		"app.buddy.works",
+		"app.saucelabs.com",
+		"app.fossa.com",
+		"bettercodehub.com",
+		"david-dm.org",
+		"requires.io",
+		"inch-ci.org",
+		"lgtm.com",
 	} {
 		if strings.Contains(lowerURL, marker) {
 			return true

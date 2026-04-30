@@ -1,5 +1,6 @@
 const RULES = [
   { name: 'strip-frontmatter', tier: 'safe', default: true },
+  { name: 'strip-setext-headers', tier: 'safe', default: true },
   { name: 'strip-html-comments', tier: 'safe', default: true },
   { name: 'strip-badges', tier: 'safe', default: true },
   { name: 'strip-decorative-images', tier: 'safe', default: true },
@@ -12,6 +13,7 @@ const RULES = [
   { name: 'strip-admonition-prefixes', tier: 'aggressive', default: true },
   { name: 'strip-benchmark-prose', tier: 'aggressive', default: true },
   { name: 'dedup-cross-section', tier: 'aggressive', default: true },
+  { name: 'strip-verification-boilerplate', tier: 'aggressive', default: true },
   { name: 'strip-boilerplate-sections', tier: 'aggressive', default: false },
   { name: 'collapse-example-output', tier: 'aggressive', default: false },
   { name: 'collapse-blank-lines', tier: 'safe', default: true },
@@ -51,6 +53,7 @@ export function compress(content, tier) {
 function applyRule(text, name) {
   switch (name) {
     case 'strip-frontmatter': return stripFrontmatter(text);
+    case 'strip-setext-headers': return stripSetextHeaders(text);
     case 'strip-html-comments': return stripHTMLComments(text);
     case 'strip-badges': return stripBadges(text);
     case 'strip-decorative-images': return stripDecorativeImages(text);
@@ -63,6 +66,7 @@ function applyRule(text, name) {
     case 'strip-admonition-prefixes': return stripAdmonitionPrefixes(text);
     case 'strip-benchmark-prose': return stripBenchmarkProse(text);
     case 'dedup-cross-section': return dedupCrossSection(text);
+    case 'strip-verification-boilerplate': return stripVerificationBoilerplate(text);
     case 'strip-boilerplate-sections': return stripBoilerplateSections(text);
     case 'collapse-example-output': return collapseExampleOutput(text);
     case 'collapse-blank-lines': return collapseBlankLines(text);
@@ -86,6 +90,32 @@ function stripFrontmatter(text) {
     }
   }
   return { output: text, nodes: 0 };
+}
+
+function stripSetextHeaders(text) {
+  const lines = text.split('\n');
+  let changed = false;
+  let inFence = false;
+  for (let i = 1; i < lines.length; i++) {
+    const prev = lines[i - 1];
+    const curr = lines[i];
+    if (inFence && !/^```|^~~~/.test(curr.trim())) continue;
+    if (/^```|^~~~/.test(curr.trim())) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    if (!prev.trim()) continue;
+    if (/^(#|\||>)/.test(prev.trim())) continue;
+    const trimmedCurr = curr.trim();
+    const isH1 = /^=+$/.test(trimmedCurr);
+    const isH2 = /^-+$/.test(trimmedCurr);
+    if (!isH1 && !isH2) continue;
+    const prefix = isH1 ? '# ' : '## ';
+    const headingText = prev.trim();
+    lines[i - 1] = prefix + headingText;
+    lines[i] = '';
+    changed = true;
+    i++;
+  }
+  return changed ? { output: lines.join('\n'), nodes: 1 } : { output: text, nodes: 0 };
 }
 
 function stripHTMLComments(text) {
@@ -198,6 +228,8 @@ function stripMarketingProse(text) {
   const phrases = [
     /\bblazing(?:ly)? fast\b/gi,
     /\blightning fast\b/gi,
+    /\bsuper-?fast\b/gi,
+    /\bincredibly fast\b/gi,
     /\bproduction-ready\b/gi,
     /\bproduction-grade\b/gi,
     /\bbattle-tested\b/gi,
@@ -211,6 +243,16 @@ function stripMarketingProse(text) {
     /\brock-solid\b/gi,
     /\bhighly performant\b/gi,
     /\bdep(?:endably|endable)\b/gi,
+    /\bworld-class\b/gi,
+    /\bindustry-leading\b/gi,
+    /\benterprise-grade\b/gi,
+    /\bbest-in-class\b/gi,
+    /\bnext-generation\b/gi,
+    /\bseamless(?:ly)?\b/gi,
+    /\bintuitive\b/gi,
+    /\bunparalleled\b/gi,
+    /\bground-?breaking\b/gi,
+    /\brevolutionary\b/gi,
   ];
   const lines = text.split('\n');
   let changed = false;
@@ -236,6 +278,11 @@ function stripHedgingPhrases(text) {
     [/\bplease note that\s+/gi, ''],
     [/\bplease note\s+/gi, ''],
     [/\bit should be noted that\s+/gi, ''],
+    [/\bit is important to note that\s+/gi, ''],
+    [/\bneedless to say,?\s+/gi, ''],
+    [/\bit goes without saying that\s+/gi, ''],
+    [/\bas a matter of fact,?\s+/gi, ''],
+    [/\bit should be mentioned that\s+/gi, ''],
     [/\bin order to\b/gi, 'to'],
     [/\bdue to the fact that\b/gi, 'because'],
     [/\bat this point in time\b/gi, 'now'],
@@ -386,6 +433,28 @@ function collapseExampleOutput(text) {
     }
   }
   return changed ? { output: lines.join('\n'), nodes: 1 } : { output: text, nodes: 0 };
+}
+
+function stripVerificationBoilerplate(text) {
+  const patterns = [
+    /^\s*if (valid|successful),?\s+the output (is|will be|should be|looks like)\s*:?\s*$/gim,
+    /^\s*if the (check|command|test) (fails|succeeds|passes),?\s+.*$/gim,
+    /^\s*if (you do|it does) not (see|encounter|get) (an |a )?error,?\s+it means\s+.*$/gim,
+    /^\s*if (no )?error(s)? occur(s)?,?\s+.*$/gim,
+    /^\s*the (expected )?output (is|will be|should be|looks like)\s*:?\s*$/gim,
+    /^\s*(you should see|you will see|you should get|you will get)\s+.*$/gim,
+    /^\s*if (everything|all) (is|goes|went) (well|correctly),?\s+.*$/gim,
+    /^\s*if (the )?above (command|step)s? (succeeds|executed? successfully|completed? successfully|ran? without errors?),?\s+.*$/gim,
+  ];
+  let changed = false;
+  let output = text;
+  for (const pattern of patterns) {
+    if (pattern.test(output)) {
+      output = output.replace(pattern, '\n');
+      changed = true;
+    }
+  }
+  return changed ? { output, nodes: 1 } : { output: text, nodes: 0 };
 }
 
 function collapseBlankLines(text) {
