@@ -3,11 +3,28 @@ on:
   schedule:
     - cron: '0 6 * * 1'           # every Monday 06:00 UTC
   workflow_dispatch:               # manual trigger
+  push:
+    branches: [main]
+    paths:
+      - 'docs/site/**'
+      - 'docs/benchmark-repos.json'
+      - '.github/workflows/benchmark.yml'
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 permissions:
   contents: write
+  pages: write
+  id-token: write
+
 jobs:
   benchmark:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -54,7 +71,7 @@ jobs:
             fi
 
             # Tier-2 (aggressive)
-            printf 'version: 1\ntier: aggressive\nrules:\n  disabled:\n    - dedup-cross-section\n    - collapse-example-output\n' > .mdcompress/config.yaml
+            printf 'version: 1\ntier: aggressive\nrules:\n  disabled:\n    - dedup-cross-section\n    - collapse-example-output\n    - strip-boilerplate-sections\n' > .mdcompress/config.yaml
             rm -rf .mdcompress/cache .mdcompress/manifest.json
             TIER2_BEFORE=0; TIER2_AFTER=0; TIER2_RULES='{}'
             ../mdcompress run --all 2>/dev/null || true
@@ -68,7 +85,7 @@ jobs:
             README_BEFORE=0; README_AFTER=0
             README_PATH=$(find . -maxdepth 1 -iname 'readme.md' | head -1)
             if [ -n "$README_PATH" ] && [ -f "$README_PATH" ]; then
-              README_STATS=$(../mdcompress compress --tier=aggressive --disable-rule=dedup-cross-section --disable-rule=collapse-example-output "$README_PATH" 2>&1 >/dev/null || true)
+              README_STATS=$(../mdcompress compress --tier=aggressive --disable-rule=dedup-cross-section --disable-rule=collapse-example-output --disable-rule=strip-boilerplate-sections "$README_PATH" 2>&1 >/dev/null || true)
               README_BEFORE=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $2}' | tr -d '->')
               README_AFTER=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $3}')
             fi
@@ -93,10 +110,14 @@ jobs:
           npm run build
         working-directory: docs/site
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: docs/_site
-          publish_branch: gh-pages
-          force_orphan: true
+          path: docs/_site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
