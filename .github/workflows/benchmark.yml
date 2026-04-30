@@ -45,8 +45,9 @@ jobs:
           echo '[]' > "$RESULTS_JSON"
 
           REPO_COUNT=$(jq '.repos | length' docs/benchmark-repos.json)
+          TEST_COUNT=2  # DEBUG: remove after debugging
           i=0
-          while [ "$i" -lt "$REPO_COUNT" ]; do
+          while [ "$i" -lt "$TEST_COUNT" ]; do
             NAME=$(jq -r ".repos[$i].name" docs/benchmark-repos.json)
             URL=$(jq -r ".repos[$i].url" docs/benchmark-repos.json)
             DIR="$BENCHDIR/$(echo "$NAME" | awk '{print tolower($0)}' | sed 's/ /_/g')"
@@ -100,6 +101,10 @@ jobs:
             : ${TIER1_BEFORE:=0}; : ${TIER1_AFTER:=0}; : ${TIER1_FILES:=0}; : ${TIER1_RULES:="{}"}
             : ${TIER2_BEFORE:=0}; : ${TIER2_AFTER:=0}; : ${TIER2_RULES:="{}"}
             : ${README_BEFORE:=0}; : ${README_AFTER:=0}
+
+            echo "DEBUG jq: t1b=[${TIER1_BEFORE}] t1a=[${TIER1_AFTER}] t1f=[${TIER1_FILES}] t1r=[${TIER1_RULES}]"
+            echo "DEBUG jq: t2b=[${TIER2_BEFORE}] t2a=[${TIER2_AFTER}] t2r=[${TIER2_RULES}]"
+            echo "DEBUG jq: rb=[${README_BEFORE}] ra=[${README_AFTER}] name=[${NAME}]"
 
             jq --arg name "$NAME" --argjson t1b "$TIER1_BEFORE" --argjson t1a "$TIER1_AFTER" \
                --argjson t1f "$TIER1_FILES" --argjson t2b "$TIER2_BEFORE" --argjson t2a "$TIER2_AFTER" \
