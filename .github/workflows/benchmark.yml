@@ -46,7 +46,7 @@ jobs:
           for i in $(seq 0 $((REPO_COUNT - 1))); do
             NAME=$(jq -r ".repos[$i].name" docs/benchmark-repos.json)
             URL=$(jq -r ".repos[$i].url" docs/benchmark-repos.json)
-            DIR="/tmp/bench/$(echo "$NAME" | tr '[:upper:] ' '[:lower:]_')"
+            DIR="/tmp/bench/$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '_')"
             echo "::group::$NAME ($URL)"
 
             rm -rf "$DIR"
@@ -86,7 +86,7 @@ jobs:
             README_PATH=$(find . -maxdepth 1 -iname 'readme.md' | head -1)
             if [ -n "$README_PATH" ] && [ -f "$README_PATH" ]; then
               README_STATS=$(../mdcompress compress --tier=aggressive --disable-rule=dedup-cross-section --disable-rule=collapse-example-output --disable-rule=strip-boilerplate-sections "$README_PATH" 2>&1 >/dev/null || true)
-              README_BEFORE=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $2}' | tr -d '->')
+              README_BEFORE=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $2}' | tr -d -- '->')
               README_AFTER=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $3}')
             fi
 
