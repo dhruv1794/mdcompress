@@ -44,12 +44,8 @@ A paragraph with *emphasis*, **strong**, and `inline code`. Visit
 
 ---
 
-Setext Heading
-==============
-
-Another setext heading
-----------------------
-
+# Setext Heading
+## Another setext heading
 - nested
   - list
     - depth

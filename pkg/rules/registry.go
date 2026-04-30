@@ -2,6 +2,7 @@ package rules
 
 var allRules = []Rule{
 	&Frontmatter{},
+	&SetextHeaders{},
 	&HTMLComments{},
 	&Badges{},
 	&DecorativeImages{},
@@ -15,6 +16,7 @@ var allRules = []Rule{
 	&AdmonitionPrefixes{},
 	&CrossReferences{},
 	&BoilerplateSections{},
+	&VerificationBoilerplate{},
 	&ExampleOutput{},
 	&BlankLines{},
 }

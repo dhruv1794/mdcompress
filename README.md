@@ -28,12 +28,13 @@ mdcompress web       # launch interactive test UI (local)
 
 ## Rules
 
-16 deterministic rules run in fixed order. `strip-boilerplate-sections` and
+18 deterministic rules run in fixed order. `strip-boilerplate-sections` and
 `collapse-example-output` are opt-in even at Tier-2.
 
 | Rule | Tier | What it does |
 |------|------|-------------|
 | `strip-frontmatter` | safe | Remove YAML/TOML frontmatter (`---` / `+++` blocks) |
+| `strip-setext-headers` | safe | Convert setext-style headings (`====`/`----`) to ATX (`#`/`##`) |
 | `strip-html-comments` | safe | Remove `<!-- ... -->` blocks |
 | `strip-badges` | safe | Remove shield.io and similar badge images/links |
 | `strip-decorative-images` | safe | Remove standalone decorative images |
@@ -46,6 +47,7 @@ mdcompress web       # launch interactive test UI (local)
 | `strip-admonition-prefixes` | aggressive | Remove `**Note:**`, `**Warning:**`, `**Tip:**` prefixes |
 | `strip-benchmark-prose` | aggressive | Remove prose that only narrates an adjacent table |
 | `dedup-cross-section` | aggressive | Remove intro sentences duplicated in body sections |
+| `strip-verification-boilerplate` | aggressive | Remove "If valid, the output is:" type verification chitchat |
 | `strip-boilerplate-sections` | aggressive | Remove "Contributing"/"License"/"Support" sections that just link to a dedicated file **(opt-in)** |
 | `collapse-example-output` | aggressive | Remove `--help` output blocks **(opt-in)** |
 | `collapse-blank-lines` | safe | Collapse 3+ blank lines to 2 |
