@@ -162,6 +162,14 @@ export default function Test() {
               <option value="llm">LLM (Tier 3)</option>
             </select>
           </div>
+          {tier === 'llm' && (
+            <div className="llm-notice">
+              LLM (Tier 3) uses AI-assisted compression via Ollama, Anthropic, or OpenAI.
+              This browser demo falls back to Aggressive (Tier 2) rules.
+              For real LLM compression, run the CLI:<br />
+              <code>mdcompress compress file.md --tier=llm</code>
+            </div>
+          )}
           <textarea
             value={input}
             onChange={e => setInput(e.target.value)}
