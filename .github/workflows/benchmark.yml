@@ -43,12 +43,7 @@ jobs:
             mkdir -p .mdcompress
 
             # Tier-1 (safe)
-            cat > .mdcompress/config.yaml <<'YAML'
-      version: 1
-      tier: safe
-      rules:
-        disabled: []
-      YAML
+            printf 'version: 1\ntier: safe\nrules:\n  disabled: []\n' > .mdcompress/config.yaml
             TIER1_BEFORE=0; TIER1_AFTER=0; TIER1_FILES=0; TIER1_RULES='{}'
             ../mdcompress run --all 2>/dev/null || true
             if [ -f .mdcompress/manifest.json ]; then
@@ -59,14 +54,7 @@ jobs:
             fi
 
             # Tier-2 (aggressive)
-            cat > .mdcompress/config.yaml <<'YAML'
-      version: 1
-      tier: aggressive
-      rules:
-        disabled:
-          - dedup-cross-section
-          - collapse-example-output
-      YAML
+            printf 'version: 1\ntier: aggressive\nrules:\n  disabled:\n    - dedup-cross-section\n    - collapse-example-output\n' > .mdcompress/config.yaml
             rm -rf .mdcompress/cache .mdcompress/manifest.json
             TIER2_BEFORE=0; TIER2_AFTER=0; TIER2_RULES='{}'
             ../mdcompress run --all 2>/dev/null || true
