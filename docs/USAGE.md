@@ -217,10 +217,11 @@ version: 1
 tier: aggressive          # safe | aggressive | llm
 
 rules:
-  enabled: []             # opt-in rules to enable (e.g. dedup-cross-section)
+  enabled: []             # opt-in rules to enable (e.g. strip-boilerplate-sections)
   disabled:               # rules to disable even when tier is active
     - dedup-cross-section
     - collapse-example-output
+    - strip-boilerplate-sections
 
 eval:
   backend: ollama

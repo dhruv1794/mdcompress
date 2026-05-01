@@ -35,7 +35,7 @@ mdcompress/
 │   └── web.go           — HTTP server with interactive test page
 ├── pkg/
 │   ├── compress/        — public Compress() API, tier parsing, LLM adapter hook
-│   ├── rules/           — Rule interface, Tier enum, ordered registry, 16 rule files
+│   ├── rules/           — Rule interface, Tier enum, ordered registry, 26 rule files + plugin system
 │   ├── parser/          — goldmark parse wrapper
 │   ├── render/          — byte-range splice (Edit/Range types + ApplyEdits)
 │   ├── tokens/          — token counting via tiktoken-go cl100k_base
@@ -89,12 +89,18 @@ type Rule interface {
 | Name | Tier | Removes |
 |------|------|---------|
 | `strip-frontmatter` | safe | YAML/TOML frontmatter at document start |
+| `strip-setext-headers` | safe | Convert setext-style headings to ATX |
 | `strip-html-comments` | safe | `<!-- ... -->` blocks |
+| `compress-code-blocks` | safe | Shell prompts, config comments, imports from fenced code blocks |
 | `strip-badges` | safe | Shield.io and similar badge images |
 | `strip-decorative-images` | safe | Standalone images with no informational alt text |
 | `strip-metadata-lines` | safe | `**Last updated:**`, `**Version:**`, etc. |
+| `strip-horizontal-rules` | safe | `---` / `***` / `___` decorative horizontal rules |
+| `strip-html-wrappers` | aggressive | Decorative `<div>`, `<p align>`, `<small>`, `<details>` wrappers |
 | `strip-toc` | safe | Generated table-of-contents blocks |
 | `strip-trailing-cta` | safe | Social/star/sponsor sections near document end |
+| `strip-cross-file-dupes` | aggressive | Boilerplate sections (Contributing/License/Support) duplicated across files |
+| `dedup-multilang-examples` | aggressive | Multi-language code examples that are semantically identical |
 | `strip-marketing-prose` | aggressive | "blazing fast", "production-ready", decoration phrases |
 | `strip-hedging-phrases` | aggressive | "it is worth noting that", "in order to", etc. |
 | `dedup-cross-section` | aggressive | Duplicate facts repeated across sections |
@@ -102,7 +108,11 @@ type Rule interface {
 | `strip-admonition-prefixes` | aggressive | `**Note:**`, `**Warning:**`, `**Tip:**` prefixes |
 | `strip-cross-references` | aggressive | "See the [X] section for details" type phrases |
 | `strip-boilerplate-sections` | aggressive | Contributing/License/Support sections redirecting to dedicated files **(opt-in)** |
+| `strip-verification-boilerplate` | aggressive | "If valid, the output is:" type verification chitchat |
+| `strip-seo-chaff` | aggressive | Breadcrumbs, prev/next links, "Was this helpful?", "Edit on GitHub" |
+| `compress-changelogs` | aggressive | Changelog/release-note sections → bullet summaries |
 | `collapse-example-output` | aggressive | `--help`-style command-output blocks **(opt-in)** |
+| `compact-tables` | aggressive | Pipe table delimiter rows and extra whitespace |
 | `collapse-blank-lines` | safe | Excessive blank lines outside fenced code blocks |
 
 Rules that are `DefaultDisabled` (currently `collapse-example-output` and `strip-boilerplate-sections`) must be explicitly opted in via `--enable-rule` or config even when their tier is active.
@@ -170,6 +180,15 @@ Supported backends for eval: Ollama (default), Anthropic, OpenAI.
 - `POST /api/compress` — accepts `{content, tier, disabled[], enabled[]}`, returns `{output, tokens_before, tokens_after, bytes_before, bytes_after, rules_fired}`
 
 The React SPA (`docs/site/`) builds to `docs/_site/` and is deployed to GitHub Pages via the benchmark CI workflow. It uses HashRouter for client-side routing (`/` for benchmarks, `#/test` for interactive test).
+
+## Plugin API
+
+`mdcompress` discovers external binaries matching `mdcompress-rule-*` on `PATH` and loads them as rules. Two protocols:
+
+- **`--plugin-info`** — queried once at startup, returns JSON `{"name","tier","description"}`. Plugins are filtered by the active tier.
+- **stdin→stdout transform** — full source bytes in, transformed bytes out. Plugins run after built-in AST rules and before the LLM rewriter.
+
+This allows custom rules to be written in any language without modifying the core codebase. See `pkg/rules/plugin.go` for the implementation.
 
 ## Key dependencies
 
