@@ -17,6 +17,13 @@ func Compress(content []byte, opts Options) (Result, error) {
 		tier = TierSafe
 	}
 
+	var crossFile *rules.CrossFileState
+	if opts.CrossFile != nil {
+		if cfs, ok := opts.CrossFile.(*rules.CrossFileState); ok {
+			crossFile = cfs
+		}
+	}
+
 	output := content
 	rulesFired := make(map[string]int)
 	disabled := disabledRuleSet(opts.DisabledRules)
@@ -30,7 +37,9 @@ func Compress(content []byte, opts Options) (Result, error) {
 			continue
 		}
 		ctx := &rules.Context{
-			Source: output,
+			Source:    output,
+			FilePath:  opts.FilePath,
+			CrossFile: crossFile,
 			Config: &rules.Config{
 				Tier:     rules.Tier(tier),
 				Disabled: disabled,

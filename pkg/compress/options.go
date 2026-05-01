@@ -68,6 +68,11 @@ type Options struct {
 	Tier          Tier
 	EnabledRules  []string
 	DisabledRules []string
+	// FilePath identifies the source file for cross-file rules.
+	FilePath string
+	// CrossFile carries shared state for cross-file deduplication rules
+	// across multiple Compress() calls. Nil means no cross-file dedup.
+	CrossFile interface{}
 	// LLMRewriter, when non-nil and Tier == TierLLM, runs after the rule
 	// pipeline. A nil rewriter at TierLLM degrades to Tier-2 output.
 	LLMRewriter LLMRewriter
