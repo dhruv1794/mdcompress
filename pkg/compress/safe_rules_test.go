@@ -136,7 +136,7 @@ func TestCompressAggressiveTierStripsBenchmarkProse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("aggressive Compress() error = %v", err)
 	}
-	want := []byte("# Project\n\n| Repo | Tokens | Reduction |\n| --- | ---: | ---: |\n| react | 4500 | 38% |\n| express | 2100 | 22% |\n")
+	want := []byte("# Project\n\n| Repo | Tokens | Reduction |\n| react | 4500 | 38% |\n| express | 2100 | 22% |\n")
 	if !bytes.Equal(aggressive.Output, want) {
 		t.Fatalf("aggressive output = %q, want %q", aggressive.Output, want)
 	}
@@ -200,5 +200,107 @@ func TestCompressAggressiveTierStripsExampleOutputWhenEnabled(t *testing.T) {
 	}
 	if result.RulesFired["collapse-example-output"] != 1 {
 		t.Fatalf("collapse-example-output fired %d times", result.RulesFired["collapse-example-output"])
+	}
+}
+
+func TestCompressTableNormalize(t *testing.T) {
+	input := []byte("# API\n\n| Parameter | Type | Default | Description |\n| :--- | :--- | :--- | :--- |\n| `name` | string | `\"\"` | The resource name |\n| `count` | integer | `1` | Number of items |\n| `enabled` | boolean | `true` | Enable feature |\n")
+	result, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
+	if err != nil {
+		t.Fatalf("Compress() error = %v", err)
+	}
+	want := []byte("# API\n\n| Parameter | Type | Default | Description |\n| `name` | string | `\"\"` | The resource name |\n| `count` | integer | `1` | Number of items |\n| `enabled` | boolean | `true` | Enable feature |\n")
+	if !bytes.Equal(result.Output, want) {
+		t.Fatalf("output = %q, want %q", result.Output, want)
+	}
+	if result.RulesFired["compact-tables"] != 1 {
+		t.Fatalf("compact-tables fired %d times", result.RulesFired["compact-tables"])
+	}
+}
+
+func TestCompressTableNormalizeSafeTierDoesNotCompact(t *testing.T) {
+	input := []byte("# API\n\n| Parameter | Type | Default | Description |\n| :--- | :--- | :--- | :--- |\n| `name` | string | `\"\"` | The resource name |\n")
+	result, err := compress.Compress(input, compress.Options{Tier: compress.TierSafe})
+	if err != nil {
+		t.Fatalf("Compress() error = %v", err)
+	}
+	if !bytes.Equal(result.Output, input) {
+		t.Fatalf("safe tier modified table: %q", result.Output)
+	}
+}
+
+func TestCompressMultilangDedup(t *testing.T) {
+	input := []byte("# Examples\n\n```python\nx = 42\nprint(x + 1)\n```\n\n```ruby\nx = 42\nputs(x + 1)\n```\n")
+	result, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
+	if err != nil {
+		t.Fatalf("Compress() error = %v", err)
+	}
+	if !bytes.Contains(result.Output, []byte("[equivalent to")) {
+		t.Fatalf("multilang dedup should replace similar code blocks: %q", result.Output)
+	}
+}
+
+func TestCompressSEOChaff(t *testing.T) {
+	input := []byte("# Guide\n\nOn this page\n\nContent here.\n\nWas this helpful?\n\nEdit this page on GitHub\n\nMore content.\n")
+	result, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
+	if err != nil {
+		t.Fatalf("Compress() error = %v", err)
+	}
+	want := []byte("# Guide\n\nContent here.\n\nMore content.\n")
+	if !bytes.Equal(result.Output, want) {
+		t.Fatalf("output = %q, want %q", result.Output, want)
+	}
+	if result.RulesFired["strip-seo-chaff"] != 3 {
+		t.Fatalf("strip-seo-chaff fired %d times", result.RulesFired["strip-seo-chaff"])
+	}
+}
+
+func TestCompressSEOChaffSafeTierDoesNotStrip(t *testing.T) {
+	input := []byte("# Guide\n\nOn this page\n\nContent here.\n")
+	result, err := compress.Compress(input, compress.Options{Tier: compress.TierSafe})
+	if err != nil {
+		t.Fatalf("Compress() error = %v", err)
+	}
+	if !bytes.Equal(result.Output, input) {
+		t.Fatalf("safe tier stripped content: %q", result.Output)
+	}
+}
+
+func TestCompressHedgingExtended(t *testing.T) {
+	input := []byte("# Guide\n\nLet's take a look at the configuration.\n\nAs a general rule of thumb, set debug to true.\n")
+	result, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
+	if err != nil {
+		t.Fatalf("Compress() error = %v", err)
+	}
+	if bytes.Contains(result.Output, []byte("take a look")) {
+		t.Fatalf("conversational filler not stripped: %q", result.Output)
+	}
+	if bytes.Contains(result.Output, []byte("rule of thumb")) {
+		t.Fatalf("hedging phrase not stripped: %q", result.Output)
+	}
+}
+
+func TestCompressCrossFileDupesNilState(t *testing.T) {
+	input := []byte("# Project\n\n## Contributing\n\nPlease read CONTRIBUTING.md for guidelines on how to contribute to this project.\n")
+	result, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
+	if err != nil {
+		t.Fatalf("Compress() error = %v", err)
+	}
+	if !bytes.Equal(result.Output, input) {
+		t.Fatalf("cross-file dupes fired without CrossFile state: %q", result.Output)
+	}
+}
+
+func TestCompressChangelogCompression(t *testing.T) {
+	input := []byte("# Changelog\n\n## [1.2.0] - 2024-01-01\n\n- Added new feature X\n- Fixed bug in Y\n- Improved performance of Z\n- Updated documentation\n\n## [1.1.0] - 2023-12-01\n\n- Initial release\n- Startup script\n")
+	result, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive, FilePath: "CHANGELOG.md"})
+	if err != nil {
+		t.Fatalf("Compress() error = %v", err)
+	}
+	if !bytes.Contains(result.Output, []byte("Added new feature X")) {
+		t.Fatalf("changelog not compressed properly: %q", result.Output)
+	}
+	if bytes.Count(result.Output, []byte("\n- ")) > 0 {
+		t.Fatalf("bullet points should be collapsed: %q", result.Output)
 	}
 }

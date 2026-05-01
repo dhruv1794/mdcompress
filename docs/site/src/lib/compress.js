@@ -2,6 +2,7 @@ const RULES = [
   { name: 'strip-frontmatter', tier: 'safe', default: true },
   { name: 'strip-setext-headers', tier: 'safe', default: true },
   { name: 'strip-html-comments', tier: 'safe', default: true },
+  { name: 'compress-code-blocks', tier: 'safe', default: true },
   { name: 'strip-badges', tier: 'safe', default: true },
   { name: 'strip-decorative-images', tier: 'safe', default: true },
   { name: 'strip-toc', tier: 'safe', default: true },
@@ -36,7 +37,7 @@ export function compress(content, tier) {
   });
 
   for (const rule of applicable) {
-    const result = applyRule(output, rule.name);
+    const result = applyRule(output, rule.name, maxTier);
     if (result.output !== output) {
       fired[rule.name] = result.nodes || 1;
       output = result.output;
@@ -50,11 +51,12 @@ export function compress(content, tier) {
   return { output, tokensBefore, tokensAfter, bytesBefore, bytesAfter, rulesFired: fired };
 }
 
-function applyRule(text, name) {
+function applyRule(text, name, maxTier) {
   switch (name) {
     case 'strip-frontmatter': return stripFrontmatter(text);
     case 'strip-setext-headers': return stripSetextHeaders(text);
     case 'strip-html-comments': return stripHTMLComments(text);
+    case 'compress-code-blocks': return compressCodeBlocks(text, maxTier);
     case 'strip-badges': return stripBadges(text);
     case 'strip-decorative-images': return stripDecorativeImages(text);
     case 'strip-toc': return stripTOC(text);
@@ -462,4 +464,216 @@ function collapseBlankLines(text) {
   const trimmedStart = result.replace(/^\n+/, '');
   if (result !== trimmedStart) return { output: trimmedStart, nodes: 1 };
   return result !== text ? { output: result, nodes: 1 } : { output: text, nodes: 0 };
+}
+
+function compressCodeBlocks(text, maxTier) {
+  const lines = text.split('\n');
+  const blocks = [];
+  let inFence = false, fenceMarker = '', fenceLang = '', fenceLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    const m = t.match(/^(`{3,}|~{3,})/);
+    if (m) {
+      if (!inFence) {
+        inFence = true;
+        fenceMarker = m[1][0];
+        fenceLang = t.slice(m[1].length).trim().toLowerCase().split(/\s+/)[0] || '';
+        fenceLine = i;
+      } else if (m[1][0] === fenceMarker) {
+        inFence = false;
+        if (fenceLine >= 0 && i > fenceLine + 1) {
+          blocks.push({ start: fenceLine, end: i, lang: fenceLang, content: lines.slice(fenceLine + 1, i) });
+        }
+        fenceLine = -1;
+      }
+    }
+  }
+
+  if (blocks.length === 0) return { output: text, nodes: 0 };
+
+  let changed = false;
+  const seenHashes = new Set();
+
+  for (let bi = 0; bi < blocks.length; bi++) {
+    const block = blocks[bi];
+    const content = [...block.content];
+    const origHash = hashLines(content);
+
+    if (maxTier >= 2 && seenHashes.has(origHash)) {
+      block.content = ['[duplicate — same as block above]'];
+      changed = true;
+      continue;
+    }
+
+    let mod = false;
+    mod = stripShellPromptsJS(content, block.lang) || mod;
+    mod = stripConfigCommentsJS(content, block.lang) || mod;
+
+    if (maxTier >= 2) {
+      mod = stripImportsJS(content, block.lang) || mod;
+      mod = stripErrorBoilerplateJS(content, block.lang) || mod;
+    }
+
+    if (mod) {
+      const filtered = content.filter(l => l.trim() !== '');
+      block.content = filtered;
+      changed = true;
+    }
+
+    if (maxTier >= 2) seenHashes.add(origHash);
+  }
+
+  if (maxTier >= 2 && blocks.length > 1) {
+    for (let i = 1; i < blocks.length; i++) {
+      const p = blocks[i - 1], c = blocks[i];
+      if (p.lang && c.lang && p.lang !== c.lang && !c.content[0]?.startsWith('[')) {
+        const pn = p.content.join('\n').replace(/\s/g, '').toLowerCase();
+        const cn = c.content.join('\n').replace(/\s/g, '').toLowerCase();
+        if (pn === cn) {
+          c.content = [`[identical to ${p.lang} example above]`];
+          changed = true;
+        }
+      }
+    }
+  }
+
+  if (!changed) return { output: text, nodes: 0 };
+
+  const out = [];
+  let blockIdx = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const block = blocks[blockIdx];
+    if (block && i === block.start) {
+      out.push(lines[i]);
+      out.push(...block.content);
+      out.push(lines[block.end]);
+      i = block.end;
+      blockIdx++;
+    } else {
+      out.push(lines[i]);
+    }
+  }
+
+  return { output: out.join('\n'), nodes: blocks.length };
+}
+
+function hashLines(lines) {
+  let h = 0;
+  for (const l of lines) {
+    for (let i = 0; i < l.length; i++) { h = ((h << 5) - h) + l.charCodeAt(i); h |= 0; }
+  }
+  return h;
+}
+
+function stripShellPromptsJS(lines, lang) {
+  const isShell = ['sh', 'bash', 'zsh', 'fish', 'ksh', 'shell', 'console', 'terminal', 'powershell', 'pwsh'].includes(lang);
+  if (!isShell && !hasShellPromptsJS(lines)) return false;
+  let changed = false;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(\$\s*|>\s*|#\s+)(.*)/);
+    if (m) { lines[i] = m[2]; changed = true; continue; }
+    if (isShell && (/^#!\//.test(lines[i]) || /^set\s+[-+][a-zA-Z]/.test(lines[i]))) { lines[i] = ''; changed = true; }
+  }
+  return changed;
+}
+
+function hasShellPromptsJS(lines) {
+  let c = 0;
+  for (let i = 0; i < lines.length && i < 10; i++) { if (/^\$\s/.test(lines[i])) c++; }
+  return c >= 2;
+}
+
+function stripConfigCommentsJS(lines, lang) {
+  const isConfig = ['yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'properties', 'env', 'editorconfig', 'gitconfig'].includes(lang);
+  if (!isConfig) return false;
+  let changed = false;
+  const isINI = ['ini', 'cfg', 'conf', 'properties', 'editorconfig', 'gitconfig'].includes(lang);
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t) continue;
+    if (isINI ? /^\s*[#;]/.test(lines[i]) : /^\s*#/.test(lines[i])) { lines[i] = ''; changed = true; }
+  }
+  return changed;
+}
+
+function stripImportsJS(lines, lang) {
+  switch (lang) {
+    case 'golang': case 'go': return stripGoImportsJS(lines);
+    case 'python': case 'py': case 'py3': return stripPythonImportsJS(lines);
+    case 'javascript': case 'js': case 'typescript': case 'ts': case 'jsx': case 'tsx': case 'mjs': case 'cjs': return stripJSImportsJS(lines);
+    case 'java': case 'scala': case 'kotlin': return stripJavaImportsJS(lines);
+    case 'c': case 'cpp': case 'c++': case 'h': case 'hpp': case 'cxx': case 'cc': return stripCImportsJS(lines);
+    case 'rust': case 'rs': return stripRustImportsJS(lines);
+    default: return false;
+  }
+}
+
+function stripGoImportsJS(lines) {
+  let changed = false, inParen = false;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (inParen) { lines[i] = ''; changed = true; if (/^\)$/.test(t)) inParen = false; continue; }
+    if (/^import\s*\($/.test(t)) { lines[i] = ''; inParen = true; changed = true; continue; }
+    if (/^import\s+"[^"]*"$/.test(t)) { lines[i] = ''; changed = true; continue; }
+    if (t === 'package main' || t.startsWith('package ')) { lines[i] = ''; changed = true; }
+  }
+  return changed;
+}
+
+function stripPythonImportsJS(lines) {
+  let changed = false;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (/^(import\s+\S|from\s+\S+\s+import)/.test(t) || /^if\s+__name__\s*==\s*['"]__main__['"]\s*:/.test(t) || /^#!\/usr\/bin\/(env\s+)?python/.test(t)) { lines[i] = ''; changed = true; }
+  }
+  return changed;
+}
+
+function stripJSImportsJS(lines) {
+  let changed = false;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (/^(import\s+|export\s+)/.test(t) || /^(const|var|let)\s+\w+\s*=\s*require\(/.test(t) || /^module\.exports\s*=/.test(t) || /^import\s+type\s+/.test(t)) { lines[i] = ''; changed = true; }
+  }
+  return changed;
+}
+
+function stripJavaImportsJS(lines) {
+  let changed = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^(import\s+|package\s+)\S/.test(lines[i].trim())) { lines[i] = ''; changed = true; }
+  }
+  return changed;
+}
+
+function stripCImportsJS(lines) {
+  let changed = false, inIfndef = false;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (/^#include\s*[<"]/.test(t) || /^using\s+(namespace|static)\s+/.test(t) || /^#pragma\s/.test(t)) { lines[i] = ''; changed = true; continue; }
+    if (/^#ifndef\s/.test(t)) { inIfndef = true; lines[i] = ''; changed = true; continue; }
+    if (inIfndef) { if (!t || /^#define\s/.test(t)) { lines[i] = ''; changed = true; continue; } if (/^#endif/.test(t)) { lines[i] = ''; changed = true; inIfndef = false; } }
+  }
+  return changed;
+}
+
+function stripRustImportsJS(lines) {
+  let changed = false;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (/^use\s+\S/.test(t) || /^extern\s+crate\s+/.test(t) || /^mod\s+\S/.test(t) || /^#\[derive\(/.test(t)) { lines[i] = ''; changed = true; }
+  }
+  return changed;
+}
+
+function stripErrorBoilerplateJS(lines, lang) {
+  if (lang !== 'go' && lang !== 'golang') return false;
+  let changed = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^\s*if\s+err\s*!=\s*nil\s*\{?\s*$/.test(lines[i].trim())) continue;
+    changed = true;
+    lines[i] = '';
+    if (i + 1 < lines.length && /^\s*return\s+(nil,\s*)?\w*err\w*\s*$/.test(lines[i + 1].trim())) { lines[i + 1] = ''; i++; }
+  }
+  return changed;
 }

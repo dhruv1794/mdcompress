@@ -42,8 +42,6 @@ func main() {
 A paragraph with *emphasis*, **strong**, and `inline code`. Visit
 [the homepage](https://example.com) for more details.
 
----
-
 # Setext Heading
 ## Another setext heading
 - nested

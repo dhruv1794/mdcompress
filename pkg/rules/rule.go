@@ -2,6 +2,8 @@
 package rules
 
 import (
+	"sync"
+
 	"github.com/dhruv1794/mdcompress/pkg/render"
 	"github.com/yuin/goldmark/ast"
 )
@@ -28,11 +30,58 @@ func (t Tier) String() string {
 	}
 }
 
+// CrossFileState carries shared state across compression runs on multiple
+// files, enabling cross-file deduplication and reference tracking.
+type CrossFileState struct {
+	mu sync.Mutex
+
+	SectionHashes map[string]string
+	SeenSections  map[string]CrossFileSection
+}
+
+type CrossFileSection struct {
+	CanonicalFile   string
+	SectionHeading  string
+	ContentHash     string
+	ByteLength      int
+}
+
+func (cfs *CrossFileState) RecordSection(hash, file, heading string, length int) bool {
+	if cfs == nil {
+		return false
+	}
+	cfs.mu.Lock()
+	defer cfs.mu.Unlock()
+	if cfs.SectionHashes == nil {
+		cfs.SectionHashes = make(map[string]string)
+		cfs.SeenSections = make(map[string]CrossFileSection)
+	}
+	if existing, ok := cfs.SectionHashes[hash]; ok && existing != file {
+		return false
+	}
+	cfs.SectionHashes[hash] = file
+	cfs.SeenSections[hash] = CrossFileSection{
+		CanonicalFile:  file,
+		ContentHash:    hash,
+		ByteLength:     length,
+	}
+	return true
+}
+
+func (cfs *CrossFileSection) ReferenceFile() string {
+	if cfs == nil {
+		return ""
+	}
+	return cfs.CanonicalFile
+}
+
 // Context is passed to every rule. Rules read Source and return byte ranges
 // to remove; they should not mutate the source bytes.
 type Context struct {
-	Source []byte
-	Config *Config
+	Source     []byte
+	Config     *Config
+	FilePath   string
+	CrossFile  *CrossFileState
 }
 
 // Config contains the active rule configuration.
