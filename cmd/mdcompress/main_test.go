@@ -485,7 +485,7 @@ func TestDefaultConfigYAMLUsesAggressiveWithRiskyRulesDisabled(t *testing.T) {
 		"    - dedup-cross-section",
 		"    - collapse-example-output",
 		"code_blocks:",
-		"  max_lines: 30",
+		"  max_lines: 20",
 		"  threshold: 0.95",
 		"  questions_per_doc: 10",
 	} {

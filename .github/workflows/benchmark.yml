@@ -68,8 +68,8 @@ jobs:
             exit 0
           fi
 
-          TIER1_BEFORE=0; TIER1_AFTER=0; TIER1_FILES=0; TIER1_RULES='{}'
-          TIER2_BEFORE=0; TIER2_AFTER=0; TIER2_RULES='{}'
+          TIER1_BEFORE=0; TIER1_AFTER=0; TIER1_FILES=0; TIER1_RULES='{}'; TIER1_BYTES='{}'
+          TIER2_BEFORE=0; TIER2_AFTER=0; TIER2_RULES='{}'; TIER2_BYTES='{}'
           README_BEFORE=0; README_AFTER=0
 
           mkdir -p "$DIR/.mdcompress"
@@ -82,6 +82,7 @@ jobs:
             TIER1_AFTER=$(jq '.totals.tokens_after' "$DIR/.mdcompress/manifest.json")
             TIER1_FILES=$(jq '.totals.files' "$DIR/.mdcompress/manifest.json")
             TIER1_RULES=$(jq -c '[.entries | to_entries | .[].value.rules_fired] | add' "$DIR/.mdcompress/manifest.json")
+            TIER1_BYTES=$(jq -c '[.entries | to_entries | .[].value.rule_bytes_saved // {}] | add // {}' "$DIR/.mdcompress/manifest.json")
           fi
 
           # Tier-2 (aggressive)
@@ -96,6 +97,7 @@ jobs:
             TIER2_BEFORE=$(jq '.totals.tokens_before' "$DIR/.mdcompress/manifest.json")
             TIER2_AFTER=$(jq '.totals.tokens_after' "$DIR/.mdcompress/manifest.json")
             TIER2_RULES=$(jq -c '[.entries | to_entries | .[].value.rules_fired] | add' "$DIR/.mdcompress/manifest.json")
+            TIER2_BYTES=$(jq -c '[.entries | to_entries | .[].value.rule_bytes_saved // {}] | add // {}' "$DIR/.mdcompress/manifest.json")
           fi
 
           # README-only (aggressive tier)
@@ -109,8 +111,8 @@ jobs:
             : ${README_AFTER:=0}
           fi
 
-          : ${TIER1_BEFORE:=0}; : ${TIER1_AFTER:=0}; : ${TIER1_FILES:=0}; : ${TIER1_RULES:="{}"}
-          : ${TIER2_BEFORE:=0}; : ${TIER2_AFTER:=0}; : ${TIER2_RULES:="{}"}
+          : ${TIER1_BEFORE:=0}; : ${TIER1_AFTER:=0}; : ${TIER1_FILES:=0}; : ${TIER1_RULES:="{}"}; : ${TIER1_BYTES:="{}"}
+          : ${TIER2_BEFORE:=0}; : ${TIER2_AFTER:=0}; : ${TIER2_RULES:="{}"}; : ${TIER2_BYTES:="{}"}
           : ${README_BEFORE:=0}; : ${README_AFTER:=0}
 
           jq -n --arg name "$NAME" \
@@ -119,7 +121,8 @@ jobs:
              --argjson t2b "$TIER2_BEFORE" --argjson t2a "$TIER2_AFTER" \
              --argjson rb "$README_BEFORE" --argjson ra "$README_AFTER" \
              --argjson t1r "$TIER1_RULES" --argjson t2r "$TIER2_RULES" \
-             '{name:$name, tier1_before:$t1b, tier1_after:$t1a, tier1_files:$t1f, tier2_before:$t2b, tier2_after:$t2a, readme_before:$rb, readme_after:$ra, tier1_rules:$t1r, tier2_rules:$t2r}' \
+             --argjson t1bs "$TIER1_BYTES" --argjson t2bs "$TIER2_BYTES" \
+             '{name:$name, tier1_before:$t1b, tier1_after:$t1a, tier1_files:$t1f, tier2_before:$t2b, tier2_after:$t2a, readme_before:$rb, readme_after:$ra, tier1_rules:$t1r, tier2_rules:$t2r, tier1_bytes_saved:$t1bs, tier2_bytes_saved:$t2bs}' \
              > "result-$SLUG.json"
 
       - uses: actions/upload-artifact@v4

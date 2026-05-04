@@ -32,6 +32,16 @@ func (r *CrossFileDupes) Apply(ctx *Context) (ChangeSet, error) {
 		hash := sectionHash(normalized)
 
 		if ctx.CrossFile.RecordSection(hash, ctx.FilePath, sec.Heading, len(sectionText)) {
+			if len(sectionText) < 256 {
+				continue
+			}
+			structHash := structuralHash("section", structuralNormalize(sectionText))
+			if canonical, dup := ctx.CrossFile.RecordStructuralSection(structHash, ctx.FilePath, sec.Heading, len(sectionText)); dup {
+				refText := "[same as in " + fileBasename(canonical.CanonicalFile) + "]"
+				if len(refText)+1 < sec.BodyEnd-sec.BodyStart {
+					addReplacement(&changes, sec.BodyStart, sec.BodyEnd, refText+"\n")
+				}
+			}
 			continue
 		}
 

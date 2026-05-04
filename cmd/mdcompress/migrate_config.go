@@ -60,7 +60,7 @@ rules:
     - dedup-cross-section
     - collapse-example-output
 code_blocks:
-  max_lines: 30
+  max_lines: 20
 patterns:
   include:
     - "**/*.md"

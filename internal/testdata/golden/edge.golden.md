@@ -22,10 +22,8 @@ fenced with a language
 > > continued
 
 | col a | col b |
-| --- | --- |
 | 1 | 2 |
 | 3 | 4 |
-
 [ref-style link][ref]
 
 [ref]: https://example.com "title"

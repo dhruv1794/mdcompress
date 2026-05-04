@@ -37,6 +37,7 @@ type Entry struct {
 	CompressedAt    time.Time        `json:"compressed_at"`
 	RulesFired      map[string]int   `json:"rules_fired"`
 	RuleDurationsMS map[string]int64 `json:"rule_durations_ms,omitempty"`
+	RuleBytesSaved  map[string]int   `json:"rule_bytes_saved,omitempty"`
 }
 
 func New() *Manifest {

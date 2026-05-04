@@ -77,6 +77,7 @@ func runMarkdown(opts runOptions) (runSummary, error) {
 			CompressedAt:    time.Now().UTC(),
 			RulesFired:      result.RulesFired,
 			RuleDurationsMS: result.RuleDurationsMS,
+			RuleBytesSaved:  result.RuleBytesSaved,
 		}
 		summary.Compressed++
 	}

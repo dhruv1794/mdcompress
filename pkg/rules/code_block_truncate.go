@@ -4,7 +4,10 @@ import (
 	"strconv"
 )
 
-const DefaultCodeBlockMaxLines = 30
+const (
+	DefaultCodeBlockMaxLines = 20
+	DefaultCodeBlockMaxBytes = 2048
+)
 
 type CodeBlockTruncate struct{}
 
@@ -25,18 +28,39 @@ func (r *CodeBlockTruncate) Apply(ctx *Context) (ChangeSet, error) {
 
 	var changes ChangeSet
 	for _, block := range blocks {
-		if len(block.Content) <= maxLines {
+		contentStart := block.Content[0].Start
+		contentEnd := block.Content[len(block.Content)-1].End
+		contentBytes := contentEnd - contentStart
+
+		if len(block.Content) > maxLines {
+			omitted := len(block.Content) - maxLines
+			start := block.Content[maxLines].Start
+			end := contentEnd
+			replacement := "[... " + strconv.Itoa(omitted) + " more lines ...]\n"
+			if len(replacement) < end-start {
+				addReplacement(&changes, start, end, replacement)
+			}
 			continue
 		}
 
-		omitted := len(block.Content) - maxLines
-		start := block.Content[maxLines].Start
-		end := block.Content[len(block.Content)-1].End
-		replacement := "[... " + strconv.Itoa(omitted) + " more lines ...]\n"
-		if len(replacement) >= end-start {
-			continue
+		if contentBytes > DefaultCodeBlockMaxBytes && len(block.Content) <= maxLines {
+			keep := max(DefaultCodeBlockMaxBytes/2, 200)
+			if keep >= contentBytes {
+				continue
+			}
+			cut := contentStart + keep
+			for cut < contentEnd && ctx.Source[cut] != '\n' {
+				cut++
+			}
+			if cut >= contentEnd {
+				continue
+			}
+			omitted := contentEnd - cut
+			replacement := "[... " + strconv.Itoa(omitted) + " more bytes ...]\n"
+			if len(replacement) < contentEnd-cut {
+				addReplacement(&changes, cut, contentEnd, replacement)
+			}
 		}
-		addReplacement(&changes, start, end, replacement)
 	}
 	return changes, nil
 }
