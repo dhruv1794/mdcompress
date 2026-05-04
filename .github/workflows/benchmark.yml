@@ -90,8 +90,9 @@ jobs:
             README_PATH=$(cd "$DIR" && find . -maxdepth 1 -iname 'readme.md' | head -1)
             if [ -n "$README_PATH" ] && [ -f "$DIR/$README_PATH" ]; then
               README_STATS=$(cd "$DIR" && "$MDCOMPRESS" compress --tier=aggressive --disable-rule=dedup-cross-section --enable-rule=strip-boilerplate-sections --enable-rule=collapse-example-output "$README_PATH" 2>&1 >/dev/null) || true
-              README_BEFORE=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $2}' | sed 's/[->]*//g')
-              README_AFTER=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $4}')
+              README_TOKENS=$(echo "$README_STATS" | sed -nE 's/^tokens[^:]*: ([0-9]+) -> ([0-9]+).*/\1 \2/p')
+              README_BEFORE=$(echo "$README_TOKENS" | awk '{print $1}')
+              README_AFTER=$(echo "$README_TOKENS" | awk '{print $2}')
               : ${README_BEFORE:=0}
               : ${README_AFTER:=0}
             fi
