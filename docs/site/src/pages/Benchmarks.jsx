@@ -2,9 +2,16 @@ import { useState, useEffect } from 'react';
 
 function fmt(n) { return n.toLocaleString(); }
 function pctClass(p) { return p >= 25 ? 'high' : p >= 10 ? 'mid' : 'low'; }
+function safePct(num, denom) {
+  if (!denom || !Number.isFinite(num / denom)) return null;
+  return (num / denom) * 100;
+}
 function bar(pct) {
+  if (pct === null || !Number.isFinite(pct)) {
+    return <span className="reduction low">—</span>;
+  }
   const cls = pct >= 25 ? 'green' : pct >= 10 ? 'teal' : pct >= 3 ? 'amber' : 'red';
-  const w = Math.min(pct * 2.5, 100);
+  const w = Math.min(Math.max(pct, 0) * 2.5, 100);
   return (
     <span className="bar-wrap">
       <span className={`reduction ${pctClass(pct)}`}>{pct.toFixed(1)}%</span>
@@ -36,12 +43,13 @@ export default function Benchmarks() {
   const rmSaved = rmB - rmA;
   const avgRMPct = rmB > 0 ? (rmSaved / rmB * 100) : 0;
   const costSaved = (t2Saved / 1_000_000 * 3).toFixed(2);
+  const roi = rmB > 0 ? ((rmSaved / rmB * 6315 * 3) / 1e6 * 3 * 5).toFixed(2) : '0.00';
 
   const cards = [
     { label: 'Repos Tracked', value: data.length, sub: '', cls: 'purple' },
     { label: 'README Reduction', value: avgRMPct.toFixed(1) + '%', sub: 'aggressive tier, avg across repos', cls: 'teal' },
     { label: 'Tier-2 Tokens Saved', value: fmt(t2Saved), sub: `$${costSaved} at Sonnet pricing`, cls: 'green' },
-    { label: 'Per-session ROI', value: '~$' + ((rmSaved / rmB * 6315 * 3) / 1e6 * 3 * 5).toFixed(2), sub: '5-doc agent context, aggressive tier', cls: 'amber' },
+    { label: 'Per-session ROI', value: '~$' + roi, sub: '5-doc agent context, aggressive tier', cls: 'amber' },
   ];
 
   const readmeSort = data.filter(r => r.readme_before > 0).sort((a, b) => ((b.readme_before - b.readme_after) / b.readme_before) - ((a.readme_before - a.readme_after) / a.readme_before));
@@ -78,7 +86,7 @@ export default function Benchmarks() {
             <tbody>
               {readmeSort.map(r => {
                 const s = r.readme_before - r.readme_after;
-                const pct = (s / r.readme_before * 100);
+                const pct = safePct(s, r.readme_before);
                 return (
                   <tr key={r.name}>
                     <td>{r.name}</td>
@@ -112,10 +120,10 @@ export default function Benchmarks() {
                     <td>{r.tier1_files}</td>
                     <td>{fmt(r.tier1_before)}</td>
                     <td>{fmt(r.tier1_after)}</td>
-                    <td>{bar(t1s / r.tier1_before * 100)}</td>
+                    <td>{r.tier1_error ? <span className="reduction low" title={r.tier1_error}>failed</span> : bar(safePct(t1s, r.tier1_before))}</td>
                     <td>{fmt(r.tier2_before)}</td>
                     <td>{fmt(r.tier2_after)}</td>
-                    <td>{bar(t2s / r.tier2_before * 100)}</td>
+                    <td>{r.tier2_error ? <span className="reduction low" title={r.tier2_error}>failed</span> : bar(safePct(t2s, r.tier2_before))}</td>
                     <td>{top.length ? top : <>&mdash;</>}</td>
                   </tr>
                 );
@@ -133,7 +141,7 @@ export default function Benchmarks() {
             <thead><tr><th>Rule</th><th>Tier</th><th>Nodes Removed</th><th>% of Total</th></tr></thead>
             <tbody>
               {Object.entries(ruleTotals).sort((a, b) => b[1] - a[1]).map(([name, count]) => {
-                const pct = (count / totalNodes * 100);
+                const pct = totalNodes > 0 ? (count / totalNodes * 100) : 0;
                 const tier = name.includes('marketing') || name.includes('hedging') || name.includes('benchmark') || name.includes('dedup') ? 'Aggressive' : 'Safe';
                 return (
                   <tr key={name}>

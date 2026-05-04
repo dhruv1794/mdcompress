@@ -28,6 +28,9 @@ func (r *CodeBlockTruncate) Apply(ctx *Context) (ChangeSet, error) {
 
 	var changes ChangeSet
 	for _, block := range blocks {
+		if len(block.Content) == 0 {
+			continue
+		}
 		contentStart := block.Content[0].Start
 		contentEnd := block.Content[len(block.Content)-1].End
 		contentBytes := contentEnd - contentStart
