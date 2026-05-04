@@ -5,7 +5,6 @@ import (
 	"unicode"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 type BenchmarkProse struct{}
@@ -23,8 +22,7 @@ type benchmarkBlock struct {
 	Cells     []string
 }
 
-func (r *BenchmarkProse) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *BenchmarkProse) Apply(ctx *Context) (ChangeSet, error) {
 
 	lines := sourceLines(ctx.Source)
 	blocks := benchmarkBlocks(lines)

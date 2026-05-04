@@ -37,13 +37,21 @@ type CrossFileState struct {
 
 	SectionHashes map[string]string
 	SeenSections  map[string]CrossFileSection
+	CodeBlocks    map[string]CrossFileCodeBlock
 }
 
 type CrossFileSection struct {
-	CanonicalFile   string
-	SectionHeading  string
-	ContentHash     string
-	ByteLength      int
+	CanonicalFile  string
+	SectionHeading string
+	ContentHash    string
+	ByteLength     int
+}
+
+type CrossFileCodeBlock struct {
+	CanonicalFile string
+	ContentHash   string
+	StartLine     int
+	ByteLength    int
 }
 
 func (cfs *CrossFileState) RecordSection(hash, file, heading string, length int) bool {
@@ -61,11 +69,33 @@ func (cfs *CrossFileState) RecordSection(hash, file, heading string, length int)
 	}
 	cfs.SectionHashes[hash] = file
 	cfs.SeenSections[hash] = CrossFileSection{
-		CanonicalFile:  file,
-		ContentHash:    hash,
-		ByteLength:     length,
+		CanonicalFile: file,
+		ContentHash:   hash,
+		ByteLength:    length,
 	}
 	return true
+}
+
+func (cfs *CrossFileState) RecordCodeBlock(hash, file string, startLine, length int) (CrossFileCodeBlock, bool) {
+	if cfs == nil {
+		return CrossFileCodeBlock{}, true
+	}
+	cfs.mu.Lock()
+	defer cfs.mu.Unlock()
+	if cfs.CodeBlocks == nil {
+		cfs.CodeBlocks = make(map[string]CrossFileCodeBlock)
+	}
+	if existing, ok := cfs.CodeBlocks[hash]; ok {
+		return existing, existing.CanonicalFile == file
+	}
+	block := CrossFileCodeBlock{
+		CanonicalFile: file,
+		ContentHash:   hash,
+		StartLine:     startLine,
+		ByteLength:    length,
+	}
+	cfs.CodeBlocks[hash] = block
+	return block, true
 }
 
 func (cfs *CrossFileSection) ReferenceFile() string {
@@ -78,16 +108,17 @@ func (cfs *CrossFileSection) ReferenceFile() string {
 // Context is passed to every rule. Rules read Source and return byte ranges
 // to remove; they should not mutate the source bytes.
 type Context struct {
-	Source     []byte
-	Config     *Config
-	FilePath   string
-	CrossFile  *CrossFileState
+	Source    []byte
+	Config    *Config
+	FilePath  string
+	CrossFile *CrossFileState
 }
 
 // Config contains the active rule configuration.
 type Config struct {
-	Tier     Tier
-	Disabled map[string]bool
+	Tier              Tier
+	Disabled          map[string]bool
+	CodeBlockMaxLines int
 }
 
 // Stats reports a rule's effect.
@@ -103,9 +134,20 @@ type ChangeSet struct {
 	Stats  Stats
 }
 
-// Rule is the contract implemented by every compression rule.
+// Rule is the common metadata contract implemented by every compression rule.
 type Rule interface {
 	Name() string
 	Tier() Tier
-	Apply(doc ast.Node, ctx *Context) (ChangeSet, error)
+}
+
+// LineRule reads source bytes and emits byte-range edits.
+type LineRule interface {
+	Rule
+	Apply(ctx *Context) (ChangeSet, error)
+}
+
+// ASTRule reads a parsed markdown AST and emits byte-range edits.
+type ASTRule interface {
+	Rule
+	ApplyAST(doc ast.Node, ctx *Context) (ChangeSet, error)
 }

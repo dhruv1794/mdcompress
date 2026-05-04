@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/dhruv1794/mdcompress/pkg/parser"
 	"github.com/dhruv1794/mdcompress/pkg/render"
 	"github.com/dhruv1794/mdcompress/pkg/rules"
 )
@@ -49,12 +48,8 @@ func TestMarketingProseSkipsCodeAndTechnicalContext(t *testing.T) {
 
 func applyMarketingProse(t *testing.T, input []byte) []byte {
 	t.Helper()
-	doc, err := parser.Parse(input)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
 	rule := &rules.MarketingProse{}
-	changes, err := rule.Apply(doc, &rules.Context{Source: input, Config: &rules.Config{Tier: rules.TierAggressive}})
+	changes, err := rule.Apply(&rules.Context{Source: input, Config: &rules.Config{Tier: rules.TierAggressive}})
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/dhruv1794/mdcompress/pkg/parser"
 	"github.com/dhruv1794/mdcompress/pkg/render"
 	"github.com/dhruv1794/mdcompress/pkg/rules"
 )
@@ -58,12 +57,8 @@ func TestDedupCrossSectionKeepsClaimsWithMissingSpecialTokens(t *testing.T) {
 
 func applyDedupCrossSection(t *testing.T, input []byte) []byte {
 	t.Helper()
-	doc, err := parser.Parse(input)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
 	rule := &rules.DedupCrossSection{}
-	changes, err := rule.Apply(doc, &rules.Context{Source: input, Config: &rules.Config{Tier: rules.TierAggressive}})
+	changes, err := rule.Apply(&rules.Context{Source: input, Config: &rules.Config{Tier: rules.TierAggressive}})
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}

@@ -129,7 +129,7 @@ mdcompress eval --backend=openai --model=gpt-4o-mini --api-key-env=OPENAI_API_KE
 mdcompress eval --json-out=.mdcompress/eval.json --markdown-out=.mdcompress/eval.md
 ```
 
-The harness generates factual questions per document, answers them against both the original and compressed versions, then scores equivalence. The command exits non-zero if the average score falls below `--threshold` (default 0.95).
+The harness generates factual questions per document, answers them against both the original and compressed versions, then scores equivalence. The command writes an audit report and exits non-zero if the average score falls below `--threshold` (default 0.95). It does not change compressed output or disable rules automatically.
 
 ### `doctor`
 
@@ -222,6 +222,9 @@ rules:
     - dedup-cross-section
     - collapse-example-output
     - strip-boilerplate-sections
+
+code_blocks:
+  max_lines: 30           # truncate-large-code-blocks keeps this many content lines
 
 eval:
   backend: ollama

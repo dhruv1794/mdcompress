@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 type BlankLines struct{}
@@ -12,8 +11,7 @@ type BlankLines struct{}
 func (r *BlankLines) Name() string { return "collapse-blank-lines" }
 func (r *BlankLines) Tier() Tier   { return TierSafe }
 
-func (r *BlankLines) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *BlankLines) Apply(ctx *Context) (ChangeSet, error) {
 
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet

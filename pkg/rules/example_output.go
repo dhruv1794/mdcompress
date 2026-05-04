@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 type ExampleOutput struct{}
@@ -27,8 +26,7 @@ var (
 	usageOutputPattern    = regexp.MustCompile(`(?i)^\s*(usage|options|flags|commands|available commands):\s*`)
 )
 
-func (r *ExampleOutput) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *ExampleOutput) Apply(ctx *Context) (ChangeSet, error) {
 
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet

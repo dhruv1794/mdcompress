@@ -3,8 +3,6 @@ package rules
 import (
 	"regexp"
 	"strings"
-
-	"github.com/yuin/goldmark/ast"
 )
 
 type SEOChaff struct{}
@@ -34,8 +32,7 @@ var seoPrevNextPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^\s*\[?(previous|prev|next|back)\s*(section|page|chapter|article|guide)?\s*\]?\s*[:|]?\s*\[?[^\]]+\]?\s*$`),
 }
 
-func (r *SEOChaff) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *SEOChaff) Apply(ctx *Context) (ChangeSet, error) {
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet
 

@@ -14,7 +14,7 @@ type HTMLComments struct{}
 func (r *HTMLComments) Name() string { return "strip-html-comments" }
 func (r *HTMLComments) Tier() Tier   { return TierSafe }
 
-func (r *HTMLComments) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
+func (r *HTMLComments) ApplyAST(doc ast.Node, ctx *Context) (ChangeSet, error) {
 	var changes ChangeSet
 
 	err := ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {

@@ -128,6 +128,41 @@ func TestRewriter_FaithfulnessGateRejects(t *testing.T) {
 	}
 }
 
+func TestRewriter_JudgeParseFailureFailsSection(t *testing.T) {
+	original := longProse()
+	rewrite := &stubBackend{
+		name:      "ollama",
+		model:     "llama3.1:8b",
+		responses: []string{"Streams markdown block events while preserving facts."},
+	}
+	judge := &stubBackend{
+		name:      "anthropic",
+		model:     "claude-3-haiku",
+		responses: []string{"I'd give this a score of 0.9, but actually 0.3 on second thought."},
+	}
+
+	source := []byte(original + "\n")
+	r := &Rewriter{
+		Backend:          rewrite,
+		Judge:            judge,
+		MinSectionTokens: 20,
+		Threshold:        0.95,
+	}
+	out, stats, err := r.Rewrite(source)
+	if err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+	if stats.SectionsFailed != 1 {
+		t.Fatalf("expected 1 failed section, got %+v", stats)
+	}
+	if stats.SectionsRewritten != 0 {
+		t.Fatalf("expected no rewrites, got %+v", stats)
+	}
+	if string(out) != string(source) {
+		t.Fatalf("source should be unchanged when judge JSON parse fails")
+	}
+}
+
 func TestRewriter_SkipsCodeTableQuoteHeading(t *testing.T) {
 	source := []byte("# Heading\n\n> a long blockquote that contains many words and should never be rewritten by tier-3 because the rule is non-negotiable per spec\n\n```\nfunc main() { println(\"this is some code that is intentionally long enough to exceed any token threshold\") }\n```\n\n| col1 | col2 |\n|------|------|\n| this | that |\n| more | data |\n| even | more |\n")
 
@@ -152,6 +187,18 @@ func TestRewriter_SkipsCodeTableQuoteHeading(t *testing.T) {
 	}
 	if len(rewrite.calls) != 0 || len(judge.calls) != 0 {
 		t.Fatalf("backend should not be called for non-prose sections")
+	}
+}
+
+func TestParseJudgeScoreRequiresJSON(t *testing.T) {
+	if score, err := parseJudgeScore("```json\n{\"score\":0.87,\"reason\":\"ok\"}\n```"); err != nil || score != 0.87 {
+		t.Fatalf("parseJudgeScore valid JSON = %.2f, %v", score, err)
+	}
+	if _, err := parseJudgeScore("score: 0.99"); err == nil {
+		t.Fatalf("parseJudgeScore accepted non-JSON score")
+	}
+	if _, err := parseJudgeScore(`{"score":1.2,"reason":"bad"}`); err == nil {
+		t.Fatalf("parseJudgeScore accepted out-of-range score")
 	}
 }
 

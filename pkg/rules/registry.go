@@ -13,6 +13,8 @@ var allRules = []Rule{
 	&TOC{},
 	&TrailingCTA{},
 	&CrossFileDupes{},
+	&CrossFileCodeBlocks{},
+	&CodeBlockTruncate{},
 	&MultilangDedup{},
 	&MarketingProse{},
 	&HedgingPhrases{},

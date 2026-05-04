@@ -3,8 +3,6 @@ package rules
 import (
 	"regexp"
 	"strings"
-
-	"github.com/yuin/goldmark/ast"
 )
 
 type ChangelogCompress struct{}
@@ -23,8 +21,7 @@ var changelogHeadingPatterns = []*regexp.Regexp{
 
 var changelogBulletPrefix = regexp.MustCompile(`^\s*[-*+]\s+`)
 
-func (r *ChangelogCompress) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *ChangelogCompress) Apply(ctx *Context) (ChangeSet, error) {
 	lines := sourceLines(ctx.Source)
 
 	isChangelogFile := ctx.FilePath != "" && strings.Contains(strings.ToLower(ctx.FilePath), "changelog")

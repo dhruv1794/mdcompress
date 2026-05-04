@@ -8,7 +8,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 type HedgingPhrases struct{}
@@ -65,8 +64,7 @@ var hedgingReplacements = []hedgingReplacement{
 	{regexp.MustCompile(`(?i)\bso to speak,?\s+`), ""},
 }
 
-func (r *HedgingPhrases) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *HedgingPhrases) Apply(ctx *Context) (ChangeSet, error) {
 
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet

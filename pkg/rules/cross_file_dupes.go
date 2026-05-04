@@ -3,10 +3,7 @@ package rules
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"regexp"
 	"strings"
-
-	"github.com/yuin/goldmark/ast"
 )
 
 type CrossFileDupes struct{}
@@ -14,20 +11,7 @@ type CrossFileDupes struct{}
 func (r *CrossFileDupes) Name() string { return "strip-cross-file-dupes" }
 func (r *CrossFileDupes) Tier() Tier   { return TierAggressive }
 
-var boilerplateHeadingPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)^(contribut(?:ing|e|ors?)|how to (?:contribute|help))$`),
-	regexp.MustCompile(`(?i)^(license|copyright and license|license information)$`),
-	regexp.MustCompile(`(?i)^(support|getting help|need help\??|questions\??|getting support|help and support)$`),
-	regexp.MustCompile(`(?i)^(code of conduct|code of conduct and guidelines|coc)$`),
-	regexp.MustCompile(`(?i)^(installation|installing|getting started|quick start|setup)$`),
-	regexp.MustCompile(`(?i)^(acknowledg(?:ements?|ments?)|credits|thanks|thank you)$`),
-	regexp.MustCompile(`(?i)^(security|security policy|reporting (?:a )?(?:security )?(?:vulnerabilit(?:y|ies)|issues?|bugs?)|responsible disclosure)$`),
-	regexp.MustCompile(`(?i)^(community|join (?:the )?community|our community)$`),
-	regexp.MustCompile(`(?i)^(sponsors?|backers?|funding|financial support)$`),
-}
-
-func (r *CrossFileDupes) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *CrossFileDupes) Apply(ctx *Context) (ChangeSet, error) {
 	if ctx.CrossFile == nil || ctx.FilePath == "" {
 		return ChangeSet{}, nil
 	}
@@ -40,9 +24,6 @@ func (r *CrossFileDupes) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
 
 	var changes ChangeSet
 	for _, sec := range sections {
-		if !isBoilerplateHeading(sec.Heading) {
-			continue
-		}
 		sectionText := string(ctx.Source[sec.BodyStart:sec.BodyEnd])
 		if wordCount(sectionText) < 15 || wordCount(sectionText) > 600 {
 			continue
@@ -59,15 +40,6 @@ func (r *CrossFileDupes) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
 		addReplacement(&changes, sec.BodyStart, sec.BodyEnd, refText+"\n")
 	}
 	return changes, nil
-}
-
-func isBoilerplateHeading(heading string) bool {
-	for _, pattern := range boilerplateHeadingPatterns {
-		if pattern.MatchString(heading) {
-			return true
-		}
-	}
-	return false
 }
 
 type section struct {

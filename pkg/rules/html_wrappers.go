@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 type HTMLWrappers struct{}
@@ -14,15 +13,14 @@ func (r *HTMLWrappers) Name() string { return "strip-html-wrappers" }
 func (r *HTMLWrappers) Tier() Tier   { return TierAggressive }
 
 var (
-	htmlOpenTagRe  = regexp.MustCompile(`^\s*</?(p|div|details|summary|span|center|font|big|small|dfn|abbr)\b[^>]*>\s*$`)
-	htmlCloseTagRe = regexp.MustCompile(`^\s*</(p|div|details|summary|span|center|font|big|small|dfn|abbr)>\s*$`)
-	htmlSmallTagRe = regexp.MustCompile(`(?i)^\s*<small>`)
+	htmlOpenTagRe    = regexp.MustCompile(`^\s*</?(p|div|details|summary|span|center|font|big|small|dfn|abbr)\b[^>]*>\s*$`)
+	htmlCloseTagRe   = regexp.MustCompile(`^\s*</(p|div|details|summary|span|center|font|big|small|dfn|abbr)>\s*$`)
+	htmlSmallTagRe   = regexp.MustCompile(`(?i)^\s*<small>`)
 	htmlSmallCloseRe = regexp.MustCompile(`(?i)</small>\s*$`)
-	htmlAlignRe    = regexp.MustCompile(`(?i)^\s*<p\s+align\s*=\s*"[^"]*"\s*>\s*$`)
+	htmlAlignRe      = regexp.MustCompile(`(?i)^\s*<p\s+align\s*=\s*"[^"]*"\s*>\s*$`)
 )
 
-func (r *HTMLWrappers) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *HTMLWrappers) Apply(ctx *Context) (ChangeSet, error) {
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet
 

@@ -1,13 +1,25 @@
 # mdcompress
 
-A Go library + CLI that strips fluff from markdown files and emits a
-token-optimized version, reducing LLM input cost on docs-heavy contexts
-(READMEs, runbooks, RFCs, AGENTS.md/CLAUDE.md, scraped docs).
+mdcompress strips fluff from README files and agent-context bundles
+(AGENTS.md, CLAUDE.md, scraped docs) into a hidden token-optimized mirror.
+On the current public benchmark corpus, top-level READMEs shrink 17-31%
+(28.5% average) while full docs trees shrink 1.8-5.3% (3.3% average).
 
-Status: **v3.2 (Tier-2 aggressive)** with 26 rules, faithfulness eval, MCP server,
+Status: **v3.2 (Tier-2 aggressive)** with 28 rules, faithfulness audit, MCP server,
 LLM rewriter, plugin API, and interactive web test page.
 
 Live benchmarks + test page: **[dhruv1794.github.io/mdcompress](https://dhruv1794.github.io/mdcompress/)**
+
+## When it helps
+
+mdcompress is strongest on marketing-heavy READMEs, repeated agent context,
+generated command output, repeated code examples, and docs with badges,
+wrappers, tables of contents, CTAs, and boilerplate prose.
+
+It helps less on dense technical reference docs where most tokens are code,
+API names, tables, or unique procedural detail. For those repos, expect smaller
+single-digit full-tree savings and use per-rule diffs before enabling
+aggressive rules broadly.
 
 ## Quick start
 
@@ -24,11 +36,11 @@ mdcompress web       # launch interactive test UI (local)
 |------|--------|-----------|
 | 1 | `safe` | Safe rules — deterministic, lossless-to-meaning |
 | 2 | `aggressive` (default) | Tier-1 + prose-simplification rules (opt-in portions) |
-| 3 | `llm` | Tier-2 + section-level LLM rewriting with faithfulness gate |
+| 3 | `llm` | Tier-2 + section-level LLM rewriting with a per-section faithfulness guard |
 
 ## Rules
 
-26 deterministic rules run in fixed order. `strip-boilerplate-sections` and
+28 deterministic rules run in fixed order. `strip-boilerplate-sections` and
 `collapse-example-output` are opt-in even at Tier-2.
 
 ### Safe (Tier-1)
@@ -52,7 +64,9 @@ mdcompress web       # launch interactive test UI (local)
 | Rule | What it does |
 |------|-------------|
 | `strip-html-wrappers` | Remove decorative `<div>`, `<p align>`, `<small>`, `<details>` wrappers |
-| `strip-cross-file-dupes` | Replace boilerplate sections (Contributing/License/etc.) shared across repo files |
+| `strip-cross-file-dupes` | Replace exact duplicate sections shared across repo files |
+| `dedup-cross-file-code-blocks` | Replace repeated fenced code blocks shared across repo files |
+| `truncate-large-code-blocks` | Truncate oversized fenced code blocks after a configurable line limit |
 | `dedup-multilang-examples` | Collapse multi-language code examples that are semantically identical |
 | `strip-marketing-prose` | Remove "blazing fast", "battle-tested", etc. |
 | `strip-hedging-phrases` | Replace "it is worth noting that", "in order to", etc. |
@@ -97,10 +111,12 @@ eval:
   questions_per_doc: 10
 ```
 
-## Faithfulness eval
+## Faithfulness audit
 
-`mdcompress eval` verifies compressed markdown answers factual questions
-identically to the original.
+`mdcompress eval` audits whether compressed markdown answers factual questions
+identically to the original. It writes a report and exits non-zero when the
+average score is below the configured threshold; it does not change compressed
+output or disable rules automatically.
 
 ```sh
 mdcompress eval --repo=.                       # evaluate all markdown
@@ -122,6 +138,8 @@ mdcompress-rule-mine --plugin-info
 # Transform markdown via stdin→stdout
 echo "# Title" | mdcompress-rule-mine
 ```
+
+Plugins have a 5-second timeout; transform output must be valid UTF-8 and no larger than 2x the input.
 
 See [`docs/RULES.md`](docs/RULES.md) for the full protocol specification.
 

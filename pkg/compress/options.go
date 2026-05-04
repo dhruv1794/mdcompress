@@ -73,6 +73,9 @@ type Options struct {
 	// CrossFile carries shared state for cross-file deduplication rules
 	// across multiple Compress() calls. Nil means no cross-file dedup.
 	CrossFile interface{}
+	// CodeBlockMaxLines is the maximum content lines kept in large fenced
+	// code blocks before aggressive truncation. Zero uses the rule default.
+	CodeBlockMaxLines int
 	// LLMRewriter, when non-nil and Tier == TierLLM, runs after the rule
 	// pipeline. A nil rewriter at TierLLM degrades to Tier-2 output.
 	LLMRewriter LLMRewriter

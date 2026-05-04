@@ -3,8 +3,6 @@ package rules
 import (
 	"regexp"
 	"strings"
-
-	"github.com/yuin/goldmark/ast"
 )
 
 type AdmonitionPrefixes struct{}
@@ -14,8 +12,7 @@ func (r *AdmonitionPrefixes) Tier() Tier   { return TierAggressive }
 
 var admonitionPrefixPattern = regexp.MustCompile(`(?i)^(\*{1,2}|_{1,2})\s*((?:[⚠️💡📖⚡🔍💥🔥✅❌🚧🚨🎉💬📣📢🤖🔧])?\s*)?(NOTE|WARNING|IMPORTANT|TIP|INFO|CAUTION|DANGER|HINT|REMINDER)\s*:?\s*(\*{1,2}|_{1,2})?\s*`)
 
-func (r *AdmonitionPrefixes) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *AdmonitionPrefixes) Apply(ctx *Context) (ChangeSet, error) {
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet
 

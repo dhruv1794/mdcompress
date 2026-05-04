@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 type Frontmatter struct{}
@@ -12,8 +11,7 @@ type Frontmatter struct{}
 func (r *Frontmatter) Name() string { return "strip-frontmatter" }
 func (r *Frontmatter) Tier() Tier   { return TierSafe }
 
-func (r *Frontmatter) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *Frontmatter) Apply(ctx *Context) (ChangeSet, error) {
 	source := ctx.Source
 	srcStr := string(source)
 

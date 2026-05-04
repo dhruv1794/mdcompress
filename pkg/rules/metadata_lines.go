@@ -3,8 +3,6 @@ package rules
 import (
 	"regexp"
 	"strings"
-
-	"github.com/yuin/goldmark/ast"
 )
 
 type MetadataLines struct{}
@@ -14,8 +12,7 @@ func (r *MetadataLines) Tier() Tier   { return TierSafe }
 
 var metadataLinePattern = regexp.MustCompile(`(?i)^\s*\*{0,2}(last\s*updated|updated|version|since|available\s*(since|in|from)|added\s*(in|since)|deprecated\s*(since|in)|removed\s*(in|since)|status|author|date|created|modified|published|contributors?|repository|repo|requires|compatible|support(?:s|ed)?\s*(on|by|with)?|tested\s*(on|with)|target(?:s|ing)|minimum\s*(version)?|toolchain)\s*\*{0,2}\s*:?\s*.*$`)
 
-func (r *MetadataLines) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *MetadataLines) Apply(ctx *Context) (ChangeSet, error) {
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet
 

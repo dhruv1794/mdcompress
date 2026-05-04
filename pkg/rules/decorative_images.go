@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 var standaloneImagePattern = regexp.MustCompile(`^\s*!\[([^\]]*)\]\([^)]+\)\s*$`)
@@ -21,8 +20,7 @@ type DecorativeImages struct{}
 func (r *DecorativeImages) Name() string { return "strip-decorative-images" }
 func (r *DecorativeImages) Tier() Tier   { return TierSafe }
 
-func (r *DecorativeImages) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *DecorativeImages) Apply(ctx *Context) (ChangeSet, error) {
 
 	var changes ChangeSet
 	for _, match := range htmlDecorativeImageBlockPattern.FindAllIndex(ctx.Source, -1) {
