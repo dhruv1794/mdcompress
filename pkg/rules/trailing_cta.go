@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 var (
@@ -27,8 +26,7 @@ type TrailingCTA struct{}
 func (r *TrailingCTA) Name() string { return "strip-trailing-cta" }
 func (r *TrailingCTA) Tier() Tier   { return TierSafe }
 
-func (r *TrailingCTA) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *TrailingCTA) Apply(ctx *Context) (ChangeSet, error) {
 
 	lines := sourceLines(ctx.Source)
 	startOffset := trailingStartOffset(len(ctx.Source))

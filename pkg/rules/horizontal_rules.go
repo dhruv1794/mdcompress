@@ -3,8 +3,6 @@ package rules
 import (
 	"regexp"
 	"strings"
-
-	"github.com/yuin/goldmark/ast"
 )
 
 type HorizontalRules struct{}
@@ -14,8 +12,7 @@ func (r *HorizontalRules) Tier() Tier   { return TierSafe }
 
 var hrulePattern = regexp.MustCompile(`^\s*(?:[-]{3,}|[\*]{3,}|[_]{3,})\s*$`)
 
-func (r *HorizontalRules) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *HorizontalRules) Apply(ctx *Context) (ChangeSet, error) {
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet
 

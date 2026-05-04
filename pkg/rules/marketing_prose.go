@@ -6,7 +6,6 @@ import (
 	"unicode"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 type MarketingProse struct{}
@@ -47,8 +46,7 @@ var marketingFeatureHeadingPattern = regexp.MustCompile(`(?i)\b(features?|highli
 
 var technicalContextPattern = regexp.MustCompile(`(?i)\b(uptime|latency|throughput|benchmark|benchmarks|load|memory|cpu|concurrency|concurrent|failure|failover|retry|retries|error rate|p95|p99|rps|qps|ops/sec)\b`)
 
-func (r *MarketingProse) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *MarketingProse) Apply(ctx *Context) (ChangeSet, error) {
 
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet

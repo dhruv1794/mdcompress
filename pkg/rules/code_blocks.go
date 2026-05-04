@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 type CodeBlocks struct{}
@@ -65,9 +64,9 @@ var (
 	swiftImportRe = regexp.MustCompile(`^import\s+\S+$`)
 	swiftDylibRe  = regexp.MustCompile(`^@_exported`)
 
-	dockerCommentRe   = regexp.MustCompile(`^\s*#`)
-	dockerLabelRe     = regexp.MustCompile(`^LABEL\s+`)
-	dockerMaintainRe  = regexp.MustCompile(`^MAINTAINER\s+`)
+	dockerCommentRe  = regexp.MustCompile(`^\s*#`)
+	dockerLabelRe    = regexp.MustCompile(`^LABEL\s+`)
+	dockerMaintainRe = regexp.MustCompile(`^MAINTAINER\s+`)
 
 	makeCommentRe = regexp.MustCompile(`^\s*#`)
 	makeIfRe      = regexp.MustCompile(`^\s*(ifeq|ifneq|ifdef|ifndef|else|endif)`)
@@ -89,13 +88,12 @@ var (
 	csBlockEndRe    = regexp.MustCompile(`\*/`)
 	pyDocStringRe   = regexp.MustCompile(`^\s*(?:'''|""")`)
 
-	sudoRe        = regexp.MustCompile(`^\s*sudo\s+`)
-	npmSaveRe     = regexp.MustCompile(`\s+--save(-dev|-optional)?\b`)
+	sudoRe            = regexp.MustCompile(`^\s*sudo\s+`)
+	npmSaveRe         = regexp.MustCompile(`\s+--save(-dev|-optional)?\b`)
 	cmdContinuationRe = regexp.MustCompile(`\s+\\\s*$`)
 )
 
-func (r *CodeBlocks) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *CodeBlocks) Apply(ctx *Context) (ChangeSet, error) {
 	lines := sourceLines(ctx.Source)
 	blocks := fencedBlocks(lines)
 	if len(blocks) == 0 {

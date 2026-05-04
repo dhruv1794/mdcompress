@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 type CrossReferences struct{}
@@ -27,8 +26,7 @@ var crossRefPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(continue |keep )?reading (in|at) \[[^\]]+\]\(?[^\)]*\)?[\.;]?`),
 }
 
-func (r *CrossReferences) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *CrossReferences) Apply(ctx *Context) (ChangeSet, error) {
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet
 

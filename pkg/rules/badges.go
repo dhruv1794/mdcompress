@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 var (
@@ -24,8 +23,7 @@ type Badges struct{}
 func (r *Badges) Name() string { return "strip-badges" }
 func (r *Badges) Tier() Tier   { return TierSafe }
 
-func (r *Badges) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *Badges) Apply(ctx *Context) (ChangeSet, error) {
 
 	var changes ChangeSet
 	refURLs := badgeReferenceDefinitions(ctx.Source)

@@ -2,16 +2,20 @@ package rules
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
+
+var pluginTimeout = 5 * time.Second
 
 type pluginInfo struct {
 	Name        string `json:"name"`
@@ -21,7 +25,7 @@ type pluginInfo struct {
 
 // PluginRule is a Rule backed by an external binary discovered on PATH.
 type PluginRule struct {
-	Bin  string
+	Bin   string
 	Name_ string
 	Tier_ Tier
 }
@@ -29,13 +33,12 @@ type PluginRule struct {
 func (r *PluginRule) Name() string { return r.Name_ }
 func (r *PluginRule) Tier() Tier   { return r.Tier_ }
 
-func (r *PluginRule) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	cmd := exec.Command(r.Bin)
-	cmd.Stdin = bytes.NewReader(ctx.Source)
-	cmd.Stderr = nil
-
-	out, err := cmd.Output()
+func (r *PluginRule) Apply(ctx *Context) (ChangeSet, error) {
+	out, err := runPlugin(r.Bin, ctx.Source)
 	if err != nil {
+		return ChangeSet{}, fmt.Errorf("plugin %s: %w", r.Name_, err)
+	}
+	if err := validatePluginOutput(ctx.Source, out); err != nil {
 		return ChangeSet{}, fmt.Errorf("plugin %s: %w", r.Name_, err)
 	}
 	if bytes.Equal(out, ctx.Source) {
@@ -54,14 +57,45 @@ func (r *PluginRule) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
 	}, nil
 }
 
+func runPlugin(bin string, source []byte) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), pluginTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin)
+	cmd.Stdin = bytes.NewReader(source)
+	cmd.Stderr = nil
+
+	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, fmt.Errorf("timed out after %s", pluginTimeout)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func validatePluginOutput(source, out []byte) error {
+	if !utf8.Valid(out) {
+		return fmt.Errorf("output is not valid UTF-8")
+	}
+	limit := len(source) * 2
+	if limit == 0 {
+		limit = 1024
+	}
+	if len(out) > limit {
+		return fmt.Errorf("output size %d exceeds limit %d", len(out), limit)
+	}
+	return nil
+}
+
 // PluginApply runs a plugin binary on the full source and returns the
 // transformed output. Called by the pipeline after AST-level rules finish.
 func PluginApply(rule *PluginRule, source []byte) ([]byte, Stats, error) {
-	cmd := exec.Command(rule.Bin)
-	cmd.Stdin = bytes.NewReader(source)
-	cmd.Stderr = nil
-	out, err := cmd.Output()
+	out, err := runPlugin(rule.Bin, source)
 	if err != nil {
+		return nil, Stats{}, fmt.Errorf("plugin %s: %w", rule.Name_, err)
+	}
+	if err := validatePluginOutput(source, out); err != nil {
 		return nil, Stats{}, fmt.Errorf("plugin %s: %w", rule.Name_, err)
 	}
 	stats := Stats{NodesAffected: 1}
@@ -122,9 +156,14 @@ func discoverPlugins() []*PluginRule {
 }
 
 func queryPlugin(path string) (pluginInfo, error) {
-	cmd := exec.Command(path, "--plugin-info")
+	ctx, cancel := context.WithTimeout(context.Background(), pluginTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "--plugin-info")
 	cmd.Stderr = nil
 	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return pluginInfo{}, fmt.Errorf("%s --plugin-info timed out after %s", path, pluginTimeout)
+	}
 	if err != nil {
 		return pluginInfo{}, fmt.Errorf("%s --plugin-info failed: %w", path, err)
 	}

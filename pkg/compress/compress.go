@@ -9,7 +9,7 @@ import (
 )
 
 // Compress runs the configured rule tier against markdown content.
-// Built-in AST rules run first (byte-range edits), then discovered plugins
+// Built-in rules run first (byte-range edits), then discovered plugins
 // (full-text pipe), followed by the LLM rewriter when tier=llm.
 func Compress(content []byte, opts Options) (Result, error) {
 	tier := opts.Tier
@@ -28,10 +28,6 @@ func Compress(content []byte, opts Options) (Result, error) {
 	rulesFired := make(map[string]int)
 	disabled := disabledRuleSet(opts.DisabledRules)
 	enabled := enabledRuleSet(opts.EnabledRules)
-	doc, err := parser.Parse(output)
-	if err != nil {
-		return Result{}, err
-	}
 	for _, rule := range rules.RulesForTier(rules.Tier(tier)) {
 		if (disabled[rule.Name()] || rules.DefaultDisabled(rule.Name())) && !enabled[rule.Name()] {
 			continue
@@ -41,11 +37,26 @@ func Compress(content []byte, opts Options) (Result, error) {
 			FilePath:  opts.FilePath,
 			CrossFile: crossFile,
 			Config: &rules.Config{
-				Tier:     rules.Tier(tier),
-				Disabled: disabled,
+				Tier:              rules.Tier(tier),
+				Disabled:          disabled,
+				CodeBlockMaxLines: opts.CodeBlockMaxLines,
 			},
 		}
-		changeSet, err := rule.Apply(doc, ctx)
+
+		var changeSet rules.ChangeSet
+		var err error
+		switch typedRule := rule.(type) {
+		case rules.ASTRule:
+			doc, parseErr := parser.Parse(output)
+			if parseErr != nil {
+				return Result{}, parseErr
+			}
+			changeSet, err = typedRule.ApplyAST(doc, ctx)
+		case rules.LineRule:
+			changeSet, err = typedRule.Apply(ctx)
+		default:
+			continue
+		}
 		if err != nil {
 			continue
 		}

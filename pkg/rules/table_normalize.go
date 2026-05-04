@@ -3,8 +3,6 @@ package rules
 import (
 	"regexp"
 	"strings"
-
-	"github.com/yuin/goldmark/ast"
 )
 
 type TableNormalize struct{}
@@ -15,8 +13,7 @@ func (r *TableNormalize) Tier() Tier   { return TierAggressive }
 var tableDelimRe = regexp.MustCompile(`^\s*\|?[\s:-]+\|[\s|:-]+\|?\s*$`)
 var tableRowRe = regexp.MustCompile(`\|`)
 
-func (r *TableNormalize) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *TableNormalize) Apply(ctx *Context) (ChangeSet, error) {
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet
 

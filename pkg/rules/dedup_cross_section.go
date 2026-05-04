@@ -6,7 +6,6 @@ import (
 	"unicode"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 type DedupCrossSection struct{}
@@ -30,8 +29,7 @@ type dedupSentence struct {
 
 var dedupTokenPattern = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9._/-]*`)
 
-func (r *DedupCrossSection) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *DedupCrossSection) Apply(ctx *Context) (ChangeSet, error) {
 
 	paragraphs := dedupParagraphs(sourceLines(ctx.Source), ctx.Source)
 	intro := dedupIntroSentences(paragraphs)

@@ -4,10 +4,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 func TestDiscoverPlugins_None(t *testing.T) {
@@ -43,7 +44,7 @@ cat
 
 	source := []byte("# hello\n")
 	ctx := &Context{Source: source, Config: &Config{}}
-	cs, err := r.Apply(&ast.Document{}, ctx)
+	cs, err := r.Apply(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -157,13 +158,57 @@ fi
 cat
 `)
 	r := &PluginRule{Bin: pluginPath, Name_: "test", Tier_: TierSafe}
-	cs, err := r.Apply(&ast.Document{}, &Context{Source: []byte("x"), Config: &Config{}})
+	cs, err := r.Apply(&Context{Source: []byte("x"), Config: &Config{}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	result := render.ApplyEdits([]byte("x"), cs.Edits)
 	if string(result) != "x" {
 		t.Errorf("expected no-op for empty edits, got %q", string(result))
+	}
+}
+
+func TestPluginApplyRejectsOversizedOutput(t *testing.T) {
+	dir := t.TempDir()
+	pluginPath := filepath.Join(dir, "mdcompress-rule-big")
+	writePluginScript(t, pluginPath, `#!/bin/sh
+printf 'abcdef'
+`)
+	r := &PluginRule{Bin: pluginPath, Name_: "big", Tier_: TierSafe}
+	_, _, err := PluginApply(r, []byte("x"))
+	if err == nil || !strings.Contains(err.Error(), "output size") {
+		t.Fatalf("expected output size error, got %v", err)
+	}
+}
+
+func TestPluginApplyRejectsInvalidUTF8(t *testing.T) {
+	dir := t.TempDir()
+	pluginPath := filepath.Join(dir, "mdcompress-rule-invalid")
+	writePluginScript(t, pluginPath, `#!/bin/sh
+printf '\377'
+`)
+	r := &PluginRule{Bin: pluginPath, Name_: "invalid", Tier_: TierSafe}
+	_, _, err := PluginApply(r, []byte("xxxx"))
+	if err == nil || !strings.Contains(err.Error(), "valid UTF-8") {
+		t.Fatalf("expected UTF-8 error, got %v", err)
+	}
+}
+
+func TestPluginApplyTimesOut(t *testing.T) {
+	oldTimeout := pluginTimeout
+	pluginTimeout = 10 * time.Millisecond
+	defer func() { pluginTimeout = oldTimeout }()
+
+	dir := t.TempDir()
+	pluginPath := filepath.Join(dir, "mdcompress-rule-slow")
+	writePluginScript(t, pluginPath, `#!/bin/sh
+sleep 1
+cat
+`)
+	r := &PluginRule{Bin: pluginPath, Name_: "slow", Tier_: TierSafe}
+	_, _, err := PluginApply(r, []byte("xxxx"))
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("expected timeout error, got %v", err)
 	}
 }
 

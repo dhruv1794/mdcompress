@@ -3,8 +3,6 @@ package rules
 import (
 	"strings"
 	"unicode"
-
-	"github.com/yuin/goldmark/ast"
 )
 
 type MultilangDedup struct{}
@@ -41,8 +39,7 @@ var langCommentMap = map[string]string{
 	"vue":        "//",
 }
 
-func (r *MultilangDedup) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *MultilangDedup) Apply(ctx *Context) (ChangeSet, error) {
 	lines := sourceLines(ctx.Source)
 	blocks := fencedBlocks(lines)
 	if len(blocks) < 2 {

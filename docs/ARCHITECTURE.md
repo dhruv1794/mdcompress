@@ -30,18 +30,22 @@ pkg/compress    — assemble Result, optionally run LLM rewriter (Tier 3)
 ```
 mdcompress/
 ├── cmd/mdcompress/
-│   ├── main.go          — cobra root + all sub-commands
+│   ├── main.go          — cobra root setup
+│   ├── commands*.go     — CLI command definitions
+│   ├── eval_config.go   — config parsing, eval command, LLM setup
+│   ├── run_pipeline.go  — markdown discovery, run/status helpers
+│   ├── doctor_hooks.go  — doctor checks, hooks, agent hints
 │   ├── serve.go         — MCP server command + init-mcp command
 │   └── web.go           — HTTP server with interactive test page
 ├── pkg/
 │   ├── compress/        — public Compress() API, tier parsing, LLM adapter hook
-│   ├── rules/           — Rule interface, Tier enum, ordered registry, 26 rule files + plugin system
+│   ├── rules/           — Rule interfaces, Tier enum, ordered registry, rule files + plugin system
 │   ├── parser/          — goldmark parse wrapper
 │   ├── render/          — byte-range splice (Edit/Range types + ApplyEdits)
 │   ├── tokens/          — token counting via tiktoken-go cl100k_base
 │   ├── manifest/        — read/write .mdcompress/manifest.json
 │   ├── cache/           — read/write .mdcompress/cache/<rel-path>, SHA helpers
-│   ├── eval/            — faithfulness eval harness (question gen, judge, report)
+│   ├── eval/            — faithfulness audit harness (question gen, judge, report)
 │   ├── llm/             — Tier-3 rewriter, Ollama/Anthropic/OpenAI backends, cache
 │   ├── server/          — MCP stdio server (read_markdown, compress_text, compress_url)
 │   └── migrate/         — config migration from markdownlint, Vale, Prettier
@@ -72,17 +76,26 @@ The active tier is set in `.mdcompress/config.yaml` (`tier: aggressive`) and can
 
 ## Rule system
 
-Every rule implements the `Rule` interface (`pkg/rules/rule.go`):
+Every rule implements the metadata-only `Rule` interface (`pkg/rules/rule.go`) plus either `LineRule` or `ASTRule`:
 
 ```go
 type Rule interface {
     Name() string
     Tier() Tier
-    Apply(doc ast.Node, ctx *Context) (ChangeSet, error)
+}
+
+type LineRule interface {
+    Rule
+    Apply(ctx *Context) (ChangeSet, error)
+}
+
+type ASTRule interface {
+    Rule
+    ApplyAST(doc ast.Node, ctx *Context) (ChangeSet, error)
 }
 ```
 
-`Apply` walks the goldmark AST, identifies content to remove, and returns a `ChangeSet` containing `[]render.Edit` (byte ranges to delete or replace). Rules never mutate source bytes directly — `render.ApplyEdits` performs all splicing after every rule runs.
+Line rules scan source bytes directly. AST rules receive a freshly parsed goldmark AST for the current source bytes. Both return a `ChangeSet` containing `[]render.Edit` byte ranges to delete or replace. Rules never mutate source bytes directly — `render.ApplyEdits` performs all splicing after every rule runs.
 
 ### Registered rules (in execution order)
 
@@ -99,7 +112,9 @@ type Rule interface {
 | `strip-html-wrappers` | aggressive | Decorative `<div>`, `<p align>`, `<small>`, `<details>` wrappers |
 | `strip-toc` | safe | Generated table-of-contents blocks |
 | `strip-trailing-cta` | safe | Social/star/sponsor sections near document end |
-| `strip-cross-file-dupes` | aggressive | Boilerplate sections (Contributing/License/Support) duplicated across files |
+| `strip-cross-file-dupes` | aggressive | Exact duplicate sections shared across files |
+| `dedup-cross-file-code-blocks` | aggressive | Fenced code blocks duplicated across files |
+| `truncate-large-code-blocks` | aggressive | Oversized fenced code blocks after `code_blocks.max_lines` |
 | `dedup-multilang-examples` | aggressive | Multi-language code examples that are semantically identical |
 | `strip-marketing-prose` | aggressive | "blazing fast", "production-ready", decoration phrases |
 | `strip-hedging-phrases` | aggressive | "it is worth noting that", "in order to", etc. |
@@ -159,20 +174,22 @@ When `tier: llm` is configured, `pkg/llm.Rewriter` is attached to the compress p
 3. Runs the optional judge backend to score faithfulness. If the score falls below `Threshold`, the original section is kept.
 4. Caches `(section-SHA, prompt-SHA) → rewritten-text` on disk so re-runs are free.
 
-## Faithfulness evaluation
+## Faithfulness Audit
 
-`mdcompress eval` verifies that compressed output still answers factual questions identically to the original. The harness:
+`mdcompress eval` audits whether compressed output still answers factual questions identically to the original. The harness:
 
 1. Generates `QuestionsPerDoc` factual questions per file via the configured LLM backend.
 2. Answers each question against both the original and compressed markdown.
 3. Asks a judge (same or separate backend) to score answer equivalence.
-4. Fails if the average score falls below `Threshold` (default 0.95).
+4. Marks the report as failed and exits non-zero if the average score falls below `Threshold` (default 0.95).
+
+This audit is post-hoc: it does not change compressed output or disable deterministic rules automatically.
 
 Supported backends for eval: Ollama (default), Anthropic, OpenAI.
 
 ## Web test page
 
-`mdcompress web` starts a local HTTP server serving an interactive test page (embedded via `go:embed`). A separate **React SPA** in `docs/site/` provides the same test page at the [public benchmark site](https://dhruv1794.github.io/mdcompress/) with client-side JavaScript compression mirroring all 16 Go rules (no server needed). Both share the same dark theme and navigation.
+`mdcompress web` starts a local HTTP server serving an interactive test page (embedded via `go:embed`). A separate **React SPA** in `docs/site/` provides the same test page at the [public benchmark site](https://dhruv1794.github.io/mdcompress/) with a client-side JavaScript subset of the single-file rules (no server needed). Both share the same dark theme and navigation.
 
 **API endpoints** (`mdcompress web` only):
 - `GET /` — embedded interactive test page
@@ -186,7 +203,9 @@ The React SPA (`docs/site/`) builds to `docs/_site/` and is deployed to GitHub P
 `mdcompress` discovers external binaries matching `mdcompress-rule-*` on `PATH` and loads them as rules. Two protocols:
 
 - **`--plugin-info`** — queried once at startup, returns JSON `{"name","tier","description"}`. Plugins are filtered by the active tier.
-- **stdin→stdout transform** — full source bytes in, transformed bytes out. Plugins run after built-in AST rules and before the LLM rewriter.
+- **stdin→stdout transform** — full source bytes in, transformed bytes out. Plugins run after built-in rules and before the LLM rewriter.
+
+Plugin execution has a 5-second timeout. Transform output must be valid UTF-8 and no more than 2x the input size, so a hung or buggy plugin cannot stall a run or replace markdown with unbounded output.
 
 This allows custom rules to be written in any language without modifying the core codebase. See `pkg/rules/plugin.go` for the implementation.
 

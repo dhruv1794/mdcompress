@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 type SetextHeaders struct{}
@@ -12,8 +11,7 @@ type SetextHeaders struct{}
 func (r *SetextHeaders) Name() string { return "strip-setext-headers" }
 func (r *SetextHeaders) Tier() Tier   { return TierSafe }
 
-func (r *SetextHeaders) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *SetextHeaders) Apply(ctx *Context) (ChangeSet, error) {
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet
 

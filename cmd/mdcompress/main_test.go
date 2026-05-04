@@ -13,6 +13,7 @@ import (
 	mdcache "github.com/dhruv1794/mdcompress/pkg/cache"
 	"github.com/dhruv1794/mdcompress/pkg/compress"
 	"github.com/dhruv1794/mdcompress/pkg/manifest"
+	"github.com/dhruv1794/mdcompress/pkg/rules"
 )
 
 func TestAppendCursorHintsNoFiles(t *testing.T) {
@@ -449,6 +450,8 @@ rules:
     - collapse-example-output
   disabled:
     - dedup-cross-section
+code_blocks:
+  max_lines: 12
 eval:
   backend: ollama
   model: llama3.1:8b
@@ -468,6 +471,9 @@ eval:
 	if !reflect.DeepEqual(cfg.DisabledRules, []string{"dedup-cross-section"}) {
 		t.Fatalf("DisabledRules = %#v", cfg.DisabledRules)
 	}
+	if cfg.CodeBlockMaxLines != 12 {
+		t.Fatalf("CodeBlockMaxLines = %d, want 12", cfg.CodeBlockMaxLines)
+	}
 	if cfg.Eval.Backend != "ollama" || cfg.Eval.Model != "llama3.1:8b" || cfg.Eval.Threshold != 0.95 || cfg.Eval.QuestionsPerDoc != 10 {
 		t.Fatalf("Eval = %#v", cfg.Eval)
 	}
@@ -478,6 +484,8 @@ func TestDefaultConfigYAMLUsesAggressiveWithRiskyRulesDisabled(t *testing.T) {
 		"tier: aggressive",
 		"    - dedup-cross-section",
 		"    - collapse-example-output",
+		"code_blocks:",
+		"  max_lines: 30",
 		"  threshold: 0.95",
 		"  questions_per_doc: 10",
 	} {
@@ -581,6 +589,9 @@ func TestCompressionOptionsFromConfigUsesAggressiveTierAndDisabledDefaults(t *te
 	}
 	if !reflect.DeepEqual(opts.DisabledRules, []string{"dedup-cross-section", "collapse-example-output"}) {
 		t.Fatalf("DisabledRules = %#v", opts.DisabledRules)
+	}
+	if opts.CodeBlockMaxLines != rules.DefaultCodeBlockMaxLines {
+		t.Fatalf("CodeBlockMaxLines = %d", opts.CodeBlockMaxLines)
 	}
 }
 

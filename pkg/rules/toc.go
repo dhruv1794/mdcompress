@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 var (
@@ -19,8 +18,7 @@ type TOC struct{}
 func (r *TOC) Name() string { return "strip-toc" }
 func (r *TOC) Tier() Tier   { return TierSafe }
 
-func (r *TOC) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *TOC) Apply(ctx *Context) (ChangeSet, error) {
 
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet

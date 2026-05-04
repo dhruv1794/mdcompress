@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 type BoilerplateSections struct{}
@@ -15,8 +14,7 @@ func (r *BoilerplateSections) Tier() Tier   { return TierAggressive }
 
 var boilerplateHeadingPattern = regexp.MustCompile(`(?i)^(contributing|license|support|code of conduct|getting help|need help\??|questions\??|community|sponsors?|backers?|acknowledgements?|credits|thanks|maintainers?|authors?|copyright and license)$`)
 
-func (r *BoilerplateSections) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *BoilerplateSections) Apply(ctx *Context) (ChangeSet, error) {
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet
 

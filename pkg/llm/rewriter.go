@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/dhruv1794/mdcompress/pkg/parser"
@@ -294,16 +293,13 @@ type judgeResponse struct {
 func parseJudgeScore(raw string) (float64, error) {
 	body := extractJSON(raw)
 	var resp judgeResponse
-	if err := json.Unmarshal([]byte(body), &resp); err == nil {
-		return resp.Score, nil
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		return 0, fmt.Errorf("backend returned invalid JSON judgement: %w", err)
 	}
-	re := regexp.MustCompile(`(?i)score[^0-9]*(0(?:\.\d+)?|1(?:\.0+)?)`)
-	if match := re.FindStringSubmatch(raw); len(match) == 2 {
-		if value, err := strconv.ParseFloat(match[1], 64); err == nil {
-			return value, nil
-		}
+	if resp.Score < 0 || resp.Score > 1 {
+		return 0, fmt.Errorf("backend returned out-of-range judgement score %.3f", resp.Score)
 	}
-	return 0, fmt.Errorf("backend returned no parseable judgement: %q", raw)
+	return resp.Score, nil
 }
 
 func extractJSON(raw string) string {

@@ -49,7 +49,7 @@ func applyHTMLComments(t *testing.T, input []byte) []byte {
 		t.Fatalf("Parse() error = %v", err)
 	}
 	rule := &rules.HTMLComments{}
-	changes, err := rule.Apply(doc, &rules.Context{Source: input, Config: &rules.Config{Tier: rules.TierSafe}})
+	changes, err := rule.ApplyAST(doc, &rules.Context{Source: input, Config: &rules.Config{Tier: rules.TierSafe}})
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}

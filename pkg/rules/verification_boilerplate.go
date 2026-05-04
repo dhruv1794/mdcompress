@@ -3,8 +3,6 @@ package rules
 import (
 	"regexp"
 	"strings"
-
-	"github.com/yuin/goldmark/ast"
 )
 
 type VerificationBoilerplate struct{}
@@ -23,8 +21,7 @@ var verificationLinePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^\s*if (the )?above (command|step)s? (succeeds|executed? successfully|completed? successfully|ran? without errors?),?\s+.*$`),
 }
 
-func (r *VerificationBoilerplate) Apply(doc ast.Node, ctx *Context) (ChangeSet, error) {
-	_ = doc
+func (r *VerificationBoilerplate) Apply(ctx *Context) (ChangeSet, error) {
 	lines := sourceLines(ctx.Source)
 	var changes ChangeSet
 

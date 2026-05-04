@@ -32,7 +32,7 @@ type MyRule struct{}
 func (r *MyRule) Name() string { return "my-rule-name" }
 func (r *MyRule) Tier() rules.Tier { return rules.TierSafe } // or TierAggressive
 
-func (r *MyRule) Apply(doc ast.Node, ctx *rules.Context) (rules.ChangeSet, error) {
+func (r *MyRule) Apply(ctx *rules.Context) (rules.ChangeSet, error) {
     var cs rules.ChangeSet
     // walk doc, collect render.Edit{} or render.Range{} values
     // increment cs.Stats.NodesAffected per affected node
@@ -44,13 +44,13 @@ func (r *MyRule) Apply(doc ast.Node, ctx *rules.Context) (rules.ChangeSet, error
 
 3. Write a test file `pkg/rules/<rule_name>_test.go`. Cover the happy path, the no-op path (rule finds nothing to remove), and at least one edge case (fenced code blocks, inline vs block context, etc.).
 
-4. If the rule is Tier 2 (`TierAggressive`) it must pass the faithfulness eval before merging:
+4. If the rule is Tier 2 (`TierAggressive`), attach a faithfulness audit before merging:
 
 ```sh
 mdcompress eval --repo=. --rule=my-rule-name --backend=ollama --model=llama3.1:8b
 ```
 
-   A score below 0.95 is a hard block.
+   A score below 0.95 should block the PR until the rule or test fixture is fixed.
 
 5. If the rule should be opt-in by default even when its tier is active, add its name to `DefaultDisabled` in `pkg/rules/registry.go`.
 
@@ -66,15 +66,15 @@ go test ./pkg/rules/...
 # Update golden files after intentional output changes
 go test ./pkg/compress/... -update
 
-# Run the faithfulness eval locally (requires Ollama)
+# Run the faithfulness audit locally (requires Ollama)
 mdcompress eval --repo=. --backend=ollama --model=llama3.1:8b
 ```
 
 ## Changing the CLI
 
-All commands are registered in `cmd/mdcompress/main.go` (general commands) or `cmd/mdcompress/serve.go` (MCP-related commands). Each command is a function returning `*cobra.Command`. Keep command functions small — delegate logic to packages under `pkg/`.
+Commands live in focused files under `cmd/mdcompress/` (`commands*.go`, `eval_config.go`, `run_pipeline.go`, `doctor_hooks.go`, `serve.go`, and `web.go`). Each command is a function returning `*cobra.Command`. Keep command functions small — delegate logic to packages under `pkg/`.
 
-Config parsing lives in `readProjectConfig` inside `main.go`. The config format is a hand-rolled YAML subset; avoid introducing a YAML library dependency to keep the binary lean.
+Config parsing lives in `readProjectConfig` inside `eval_config.go`. The config format is a hand-rolled YAML subset; avoid introducing a YAML library dependency to keep the binary lean.
 
 ## Changing the cache or manifest format
 
@@ -94,7 +94,7 @@ The MCP server lives in `pkg/server/`. It communicates over stdio using JSON-RPC
 - `go test ./...` passes
 - `go vet ./...` reports no issues
 - Golden files are updated if output changed
-- New Tier-2 rules have a passing faithfulness eval result attached to the PR
+- New Tier-2 rules have a passing faithfulness audit result attached to the PR
 - No new external dependencies without discussion first
 - Commit messages explain *why*, not *what*
 
