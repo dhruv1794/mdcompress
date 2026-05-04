@@ -68,36 +68,59 @@ jobs:
             exit 0
           fi
 
-          TIER1_BEFORE=0; TIER1_AFTER=0; TIER1_FILES=0; TIER1_RULES='{}'; TIER1_BYTES='{}'
-          TIER2_BEFORE=0; TIER2_AFTER=0; TIER2_RULES='{}'; TIER2_BYTES='{}'
+          TIER1_BEFORE=0; TIER1_AFTER=0; TIER1_FILES=0; TIER1_RULES='{}'; TIER1_BYTES='{}'; TIER1_ERROR=''
+          TIER2_BEFORE=0; TIER2_AFTER=0; TIER2_RULES='{}'; TIER2_BYTES='{}'; TIER2_ERROR=''
           README_BEFORE=0; README_AFTER=0
 
           mkdir -p "$DIR/.mdcompress"
+          LOGDIR="$BENCHDIR/logs/$SLUG"
+          mkdir -p "$LOGDIR"
+
+          run_tier() {
+            local label=$1 logfile=$2
+            (cd "$DIR" && "$MDCOMPRESS" run --all) >"$logfile.out" 2>"$logfile.err"
+            local rc=$?
+            if [ $rc -ne 0 ]; then
+              echo "::warning title=$NAME $label::mdcompress exited $rc"
+              echo "--- $label stderr (tail) ---"
+              tail -n 40 "$logfile.err" || true
+              echo "--- end ---"
+            fi
+            return $rc
+          }
 
           # Tier-1 (safe)
           printf 'version: 1\ntier: safe\nrules:\n  disabled: []\n' > "$DIR/.mdcompress/config.yaml"
-          (cd "$DIR" && "$MDCOMPRESS" run --all 2>/dev/null) || true
+          if ! run_tier "Tier-1" "$LOGDIR/tier1"; then
+            TIER1_ERROR=$(tail -n 1 "$LOGDIR/tier1.err" 2>/dev/null | tr -d '\r' | head -c 200)
+            : ${TIER1_ERROR:=mdcompress run failed}
+          fi
           if [ -f "$DIR/.mdcompress/manifest.json" ]; then
             TIER1_BEFORE=$(jq '.totals.tokens_before' "$DIR/.mdcompress/manifest.json")
             TIER1_AFTER=$(jq '.totals.tokens_after' "$DIR/.mdcompress/manifest.json")
             TIER1_FILES=$(jq '.totals.files' "$DIR/.mdcompress/manifest.json")
             TIER1_RULES=$(jq -c '[.entries | to_entries | .[].value.rules_fired] | add' "$DIR/.mdcompress/manifest.json")
             TIER1_BYTES=$(jq -c '[.entries | to_entries | .[].value.rule_bytes_saved // {}] | add // {}' "$DIR/.mdcompress/manifest.json")
+          elif [ -z "$TIER1_ERROR" ]; then
+            TIER1_ERROR="no manifest.json produced"
           fi
 
-          # Tier-2 (aggressive)
-          # dedup-cross-section has a 256KB-per-file size guard but is still
-          # the costliest aggressive rule on large doc trees; opt out for the
-          # full-tree pass and rely on the README-only pass below to measure
-          # its README impact.
+          # Tier-2 (aggressive). dedup-cross-section is opt-out per file due
+          # to its 256KB-per-file size guard; README-only pass below measures
+          # its impact.
           printf 'version: 1\ntier: aggressive\nrules:\n  disabled:\n    - dedup-cross-section\n  enabled:\n    - strip-boilerplate-sections\n    - collapse-example-output\n' > "$DIR/.mdcompress/config.yaml"
           rm -rf "$DIR/.mdcompress/cache" "$DIR/.mdcompress/manifest.json"
-          (cd "$DIR" && "$MDCOMPRESS" run --all 2>/dev/null) || true
+          if ! run_tier "Tier-2" "$LOGDIR/tier2"; then
+            TIER2_ERROR=$(tail -n 1 "$LOGDIR/tier2.err" 2>/dev/null | tr -d '\r' | head -c 200)
+            : ${TIER2_ERROR:=mdcompress run failed}
+          fi
           if [ -f "$DIR/.mdcompress/manifest.json" ]; then
             TIER2_BEFORE=$(jq '.totals.tokens_before' "$DIR/.mdcompress/manifest.json")
             TIER2_AFTER=$(jq '.totals.tokens_after' "$DIR/.mdcompress/manifest.json")
             TIER2_RULES=$(jq -c '[.entries | to_entries | .[].value.rules_fired] | add' "$DIR/.mdcompress/manifest.json")
             TIER2_BYTES=$(jq -c '[.entries | to_entries | .[].value.rule_bytes_saved // {}] | add // {}' "$DIR/.mdcompress/manifest.json")
+          elif [ -z "$TIER2_ERROR" ]; then
+            TIER2_ERROR="no manifest.json produced"
           fi
 
           # README-only (aggressive tier)
@@ -122,7 +145,8 @@ jobs:
              --argjson rb "$README_BEFORE" --argjson ra "$README_AFTER" \
              --argjson t1r "$TIER1_RULES" --argjson t2r "$TIER2_RULES" \
              --argjson t1bs "$TIER1_BYTES" --argjson t2bs "$TIER2_BYTES" \
-             '{name:$name, tier1_before:$t1b, tier1_after:$t1a, tier1_files:$t1f, tier2_before:$t2b, tier2_after:$t2a, readme_before:$rb, readme_after:$ra, tier1_rules:$t1r, tier2_rules:$t2r, tier1_bytes_saved:$t1bs, tier2_bytes_saved:$t2bs}' \
+             --arg t1err "$TIER1_ERROR" --arg t2err "$TIER2_ERROR" \
+             '{name:$name, tier1_before:$t1b, tier1_after:$t1a, tier1_files:$t1f, tier2_before:$t2b, tier2_after:$t2a, readme_before:$rb, readme_after:$ra, tier1_rules:$t1r, tier2_rules:$t2r, tier1_bytes_saved:$t1bs, tier2_bytes_saved:$t2bs, tier1_error:$t1err, tier2_error:$t2err}' \
              > "result-$SLUG.json"
 
       - uses: actions/upload-artifact@v4
