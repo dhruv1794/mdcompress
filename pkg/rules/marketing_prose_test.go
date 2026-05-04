@@ -10,7 +10,7 @@ import (
 )
 
 func TestMarketingProseStripsIntroPhrases(t *testing.T) {
-	input := []byte("# Project\n\nA production-ready, feature-rich Go library for processing markdown.\nIt is a delightful CLI for agents.\n\n## Usage\n\nRun it.\n")
+	input := []byte("# Project\n\nA production-ready, feature-rich Go library for processing markdown.\nIt is a battle-tested CLI for agents.\n\n## Usage\n\nRun it.\n")
 
 	got := applyMarketingProse(t, input)
 	want := []byte("# Project\n\nA Go library for processing markdown.\nIt is a CLI for agents.\n\n## Usage\n\nRun it.\n")
@@ -26,6 +26,15 @@ func TestMarketingProseStripsFeatureListPhrases(t *testing.T) {
 	want := []byte("# Project\n\n## Features\n\n- parsing\n- config\n\n## Benchmarks\n\nRock-solid uptime under load.\n")
 	if !bytes.Equal(got, want) {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestMarketingProsePreservesOverloadedTerms(t *testing.T) {
+	input := []byte("# Project\n\nA robust, elegant library with a beautiful API and a delightful CLI for agents.\n")
+
+	got := applyMarketingProse(t, input)
+	if !bytes.Equal(got, input) {
+		t.Fatalf("overloaded terms should not be stripped, got %q", got)
 	}
 }
 

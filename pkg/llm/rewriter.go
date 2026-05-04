@@ -50,6 +50,9 @@ func (r *Rewriter) Rewrite(source []byte) ([]byte, Stats, error) {
 	if r == nil || r.Backend == nil {
 		return source, Stats{}, nil
 	}
+	if err := r.validateJudge(); err != nil {
+		return source, Stats{}, err
+	}
 
 	doc, err := parser.Parse(source)
 	if err != nil {
@@ -166,14 +169,26 @@ func (r *Rewriter) rewriteSection(original string) (string, float64, bool, error
 	return rewrite, score, false, nil
 }
 
-// judgeRewrite runs the per-section faithfulness gate (#66). Falls back to
-// the rewrite backend when no dedicated judge is configured.
-func (r *Rewriter) judgeRewrite(original, rewrite string) (float64, error) {
-	judge := r.Judge
-	if judge == nil {
-		judge = r.Backend
+// SameBackend reports whether two backends share provider name and model ID.
+func SameBackend(a, b Backend) bool {
+	if a == nil || b == nil {
+		return false
 	}
-	raw, err := judge.Complete(JudgePrompt(original, rewrite))
+	return a.Name() == b.Name() && a.Model() == b.Model()
+}
+
+func (r *Rewriter) validateJudge() error {
+	if r.Judge == nil {
+		return fmt.Errorf("tier-3 requires a distinct judge backend; configure llm.judge_backend / llm.judge_model")
+	}
+	if SameBackend(r.Judge, r.Backend) {
+		return fmt.Errorf("judge backend %s:%s must differ from the rewrite backend (evaluator-bias)", r.Judge.Name(), r.Judge.Model())
+	}
+	return nil
+}
+
+func (r *Rewriter) judgeRewrite(original, rewrite string) (float64, error) {
+	raw, err := r.Judge.Complete(JudgePrompt(original, rewrite))
 	if err != nil {
 		return 0, err
 	}

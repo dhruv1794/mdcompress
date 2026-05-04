@@ -19,18 +19,29 @@ import (
 	mdllm "github.com/dhruv1794/mdcompress/pkg/llm"
 	"github.com/dhruv1794/mdcompress/pkg/manifest"
 	"github.com/dhruv1794/mdcompress/pkg/migrate"
+	"github.com/dhruv1794/mdcompress/pkg/rules"
+	"github.com/dhruv1794/mdcompress/pkg/tokens"
 	"github.com/spf13/cobra"
 )
 
 var version = "dev"
 
 func main() {
+	var tokenizerFlag string
 	root := &cobra.Command{
 		Use:           "mdcompress",
 		Short:         "Compress markdown for token-efficient agent context",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			t, err := tokens.ParseTokenizer(tokenizerFlag)
+			if err != nil {
+				return err
+			}
+			return tokens.SetDefault(t)
+		},
 	}
+	root.PersistentFlags().StringVar(&tokenizerFlag, "tokenizer", "cl100k", "tokenizer for token counts: cl100k (GPT-3.5/4), o200k (GPT-4o), bytes")
 
 	root.AddCommand(versionCommand())
 	root.AddCommand(compressCommand())
@@ -85,7 +96,7 @@ func runCommand() *cobra.Command {
 			}
 			if !quiet {
 				fmt.Fprintf(cmd.OutOrStdout(), "compressed %d file(s), skipped %d unchanged\n", summary.Compressed, summary.Skipped)
-				fmt.Fprintf(cmd.OutOrStdout(), "tokens saved: %d\n", summary.TokensSaved)
+				fmt.Fprintf(cmd.OutOrStdout(), "tokens saved (%s): %d\n", tokens.DefaultTokenizer().Name(), summary.TokensSaved)
 			}
 			return nil
 		},
@@ -119,6 +130,7 @@ func statusCommand() *cobra.Command {
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Repo: %s\n", repoLabel())
 			fmt.Fprintf(cmd.OutOrStdout(), "Tier: %s\n", tier)
+			fmt.Fprintf(cmd.OutOrStdout(), "Tokenizer: %s\n", tokens.DefaultTokenizer().Name())
 			fmt.Fprintf(cmd.OutOrStdout(), "Files tracked: %s\n", formatInt(m.Totals.Files))
 			fmt.Fprintf(cmd.OutOrStdout(), "Cache: %s fresh, %s stale, %s missing\n", formatInt(freshness.Fresh), formatInt(freshness.Stale), formatInt(freshness.Missing))
 			fmt.Fprintln(cmd.OutOrStdout())
@@ -252,7 +264,7 @@ Use --rule to isolate one registered rule by disabling all others for the run.`,
 	cmd.Flags().StringVar(&repo, "repo", ".", "repository or directory to evaluate")
 	cmd.Flags().StringVar(&rule, "rule", "", "evaluate a single rule by disabling all other registered rules")
 	cmd.Flags().StringVar(&tier, "tier", "", "compression tier: safe, aggressive, llm (default: config tier or safe)")
-	cmd.Flags().StringVar(&backendName, "backend", "", "LLM backend: ollama, anthropic, openai")
+	cmd.Flags().StringVar(&backendName, "backend", "", "LLM backend: ollama, anthropic, openai, deepseek, bedrock")
 	cmd.Flags().StringVar(&model, "model", "", "LLM model name")
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "LLM backend endpoint")
 	cmd.Flags().StringVar(&apiKeyEnv, "api-key-env", "", "environment variable containing the backend API key")
@@ -278,6 +290,13 @@ func evalBackend(name, endpoint, model, apiKeyEnv string) (mdeval.Backend, error
 			return nil, fmt.Errorf("openai eval backend requires --model or eval.model")
 		}
 		return mdeval.NewOpenAIBackend(endpoint, model, apiKeyEnv), nil
+	case mdeval.DeepSeekBackendName:
+		return mdeval.NewDeepSeekBackend(endpoint, model, apiKeyEnv), nil
+	case mdeval.BedrockBackendName:
+		if strings.TrimSpace(model) == "" || strings.TrimSpace(model) == mdeval.DefaultModel {
+			return nil, fmt.Errorf("bedrock eval backend requires --model or eval.model")
+		}
+		return mdeval.NewBedrockBackend(endpoint, model, apiKeyEnv), nil
 	default:
 		return nil, fmt.Errorf("unsupported eval backend %q", name)
 	}
@@ -541,17 +560,20 @@ func buildLLMRewriter(tier compress.Tier, cfg llmConfig) (compress.LLMRewriter, 
 	if err != nil {
 		return nil, err
 	}
-	var judge mdllm.Backend
-	if strings.TrimSpace(cfg.JudgeBackend) != "" {
-		judge, err = mdllm.NewBackend(mdllm.Config{
-			Backend:   cfg.JudgeBackend,
-			Model:     cfg.JudgeModel,
-			Endpoint:  cfg.Endpoint,
-			APIKeyEnv: cfg.APIKeyEnv,
-		})
-		if err != nil {
-			return nil, err
-		}
+	if strings.TrimSpace(cfg.JudgeBackend) == "" {
+		return nil, fmt.Errorf("tier-3 requires llm.judge_backend (and llm.judge_model) to avoid the rewrite backend judging its own output")
+	}
+	judge, err := mdllm.NewBackend(mdllm.Config{
+		Backend:   cfg.JudgeBackend,
+		Model:     cfg.JudgeModel,
+		Endpoint:  cfg.Endpoint,
+		APIKeyEnv: cfg.APIKeyEnv,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if mdllm.SameBackend(judge, backend) {
+		return nil, fmt.Errorf("llm.judge_backend %s:%s must differ from the rewrite backend (evaluator-bias)", judge.Name(), judge.Model())
 	}
 	rewriter := mdllm.NewRewriter(backend)
 	rewriter.Judge = judge
@@ -830,7 +852,7 @@ func compressCommand() *cobra.Command {
 			if _, err := cmd.OutOrStdout().Write(result.Output); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "tokens: %d -> %d (%d saved)\n", result.TokensBefore, result.TokensAfter, result.TokensSaved())
+			fmt.Fprintf(cmd.ErrOrStderr(), "tokens (%s): %d -> %d (%d saved)\n", tokens.DefaultTokenizer().Name(), result.TokensBefore, result.TokensAfter, result.TokensSaved())
 			fmt.Fprintf(cmd.ErrOrStderr(), "bytes: %d -> %d (%d saved)\n", result.BytesBefore, result.BytesAfter, result.BytesSaved())
 			return nil
 		},
@@ -880,6 +902,8 @@ func runMarkdown(opts runOptions) (runSummary, error) {
 		return runSummary{}, err
 	}
 
+	crossFile := &rules.CrossFileState{}
+
 	var summary runSummary
 	for _, input := range inputs {
 		sha := mdcache.SourceSHA(input.Content)
@@ -889,7 +913,10 @@ func runMarkdown(opts runOptions) (runSummary, error) {
 			continue
 		}
 
-		result, err := compress.Compress(input.Content, opts.Compress)
+		fileOpts := opts.Compress
+		fileOpts.FilePath = input.Rel
+		fileOpts.CrossFile = crossFile
+		result, err := compress.Compress(input.Content, fileOpts)
 		if err != nil {
 			return summary, err
 		}
