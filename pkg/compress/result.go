@@ -8,6 +8,10 @@ type Result struct {
 	BytesBefore  int
 	BytesAfter   int
 	RulesFired   map[string]int
+	// RuleDurationsMS records wall-clock time per rule invocation in
+	// milliseconds. Includes rules that fired with no edits, so it is the
+	// canonical signal for cost-vs-savings analysis.
+	RuleDurationsMS map[string]int64
 	// LLM is populated when Tier == TierLLM and an LLMRewriter ran. A zero
 	// value means Tier-3 was not invoked.
 	LLM LLMRewriteStats

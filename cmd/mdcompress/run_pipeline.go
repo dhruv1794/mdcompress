@@ -69,13 +69,14 @@ func runMarkdown(opts runOptions) (runSummary, error) {
 			return summary, err
 		}
 		m.Entries[input.Rel] = manifest.Entry{
-			Source:       input.Rel,
-			Cache:        cachePath,
-			SHA256:       sha,
-			TokensBefore: result.TokensBefore,
-			TokensAfter:  result.TokensAfter,
-			CompressedAt: time.Now().UTC(),
-			RulesFired:   result.RulesFired,
+			Source:          input.Rel,
+			Cache:           cachePath,
+			SHA256:          sha,
+			TokensBefore:    result.TokensBefore,
+			TokensAfter:     result.TokensAfter,
+			CompressedAt:    time.Now().UTC(),
+			RulesFired:      result.RulesFired,
+			RuleDurationsMS: result.RuleDurationsMS,
 		}
 		summary.Compressed++
 	}
@@ -265,21 +266,6 @@ func excludedPath(path string) bool {
 		}
 	}
 	return false
-}
-
-func staleEntries(m *manifest.Manifest) []string {
-	var stale []string
-	for source, entry := range m.Entries {
-		content, err := os.ReadFile(source)
-		if err != nil {
-			stale = append(stale, source)
-			continue
-		}
-		if !freshManifestEntry(source, entry, mdcache.SourceSHA(content), true) {
-			stale = append(stale, source)
-		}
-	}
-	return stale
 }
 
 type freshnessSummary struct {
