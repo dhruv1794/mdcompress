@@ -152,3 +152,10 @@ func TestCompressTruncatesLargeCodeBlocks(t *testing.T) {
 		t.Fatalf("truncate-large-code-blocks fired %d times", result.RulesFired["truncate-large-code-blocks"])
 	}
 }
+
+func TestCompressEmptyFencedBlockDoesNotPanic(t *testing.T) {
+	input := []byte("# Doc\n\n```\n```\n\n```text\n```\n\nafter\n")
+	if _, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive}); err != nil {
+		t.Fatalf("Compress() error = %v", err)
+	}
+}
