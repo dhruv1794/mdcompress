@@ -12,6 +12,7 @@ type Result struct {
 	// milliseconds. Includes rules that fired with no edits, so it is the
 	// canonical signal for cost-vs-savings analysis.
 	RuleDurationsMS map[string]int64
+	RuleBytesSaved  map[string]int
 	// LLM is populated when Tier == TierLLM and an LLMRewriter ran. A zero
 	// value means Tier-3 was not invoked.
 	LLM LLMRewriteStats

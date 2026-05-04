@@ -8,7 +8,7 @@ import (
 type TableNormalize struct{}
 
 func (r *TableNormalize) Name() string { return "compact-tables" }
-func (r *TableNormalize) Tier() Tier   { return TierAggressive }
+func (r *TableNormalize) Tier() Tier   { return TierSafe }
 
 var tableDelimRe = regexp.MustCompile(`^\s*\|?[\s:-]+\|[\s|:-]+\|?\s*$`)
 var tableRowRe = regexp.MustCompile(`\|`)

@@ -128,8 +128,9 @@ func TestCompressAggressiveTierStripsBenchmarkProse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("safe Compress() error = %v", err)
 	}
-	if !bytes.Equal(safe.Output, input) {
-		t.Fatalf("safe output = %q, want %q", safe.Output, input)
+	wantSafe := []byte("# Project\n\n| Repo | Tokens | Reduction |\n| react | 4500 | 38% |\n| express | 2100 | 22% |\nThe benchmarks above show that react sees a 38% reduction while express sees 22%.\n")
+	if !bytes.Equal(safe.Output, wantSafe) {
+		t.Fatalf("safe output = %q, want %q", safe.Output, wantSafe)
 	}
 
 	aggressive, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
@@ -218,14 +219,18 @@ func TestCompressTableNormalize(t *testing.T) {
 	}
 }
 
-func TestCompressTableNormalizeSafeTierDoesNotCompact(t *testing.T) {
+func TestCompressTableNormalizeSafeTierCompacts(t *testing.T) {
 	input := []byte("# API\n\n| Parameter | Type | Default | Description |\n| :--- | :--- | :--- | :--- |\n| `name` | string | `\"\"` | The resource name |\n")
 	result, err := compress.Compress(input, compress.Options{Tier: compress.TierSafe})
 	if err != nil {
 		t.Fatalf("Compress() error = %v", err)
 	}
-	if !bytes.Equal(result.Output, input) {
-		t.Fatalf("safe tier modified table: %q", result.Output)
+	want := []byte("# API\n\n| Parameter | Type | Default | Description |\n| `name` | string | `\"\"` | The resource name |\n")
+	if !bytes.Equal(result.Output, want) {
+		t.Fatalf("safe output = %q, want %q", result.Output, want)
+	}
+	if result.RulesFired["compact-tables"] != 1 {
+		t.Fatalf("compact-tables fired %d times at safe tier", result.RulesFired["compact-tables"])
 	}
 }
 
@@ -250,8 +255,13 @@ func TestCompressSEOChaff(t *testing.T) {
 	if !bytes.Equal(result.Output, want) {
 		t.Fatalf("output = %q, want %q", result.Output, want)
 	}
-	if result.RulesFired["strip-seo-chaff"] != 3 {
+	// strip-seo-chaff fires twice; "Edit this page on GitHub" is now caught
+	// by strip-edit-page-footers, which runs before SEO chaff.
+	if result.RulesFired["strip-seo-chaff"] != 2 {
 		t.Fatalf("strip-seo-chaff fired %d times", result.RulesFired["strip-seo-chaff"])
+	}
+	if result.RulesFired["strip-edit-page-footers"] != 1 {
+		t.Fatalf("strip-edit-page-footers fired %d times", result.RulesFired["strip-edit-page-footers"])
 	}
 }
 

@@ -29,6 +29,7 @@ func Compress(content []byte, opts Options) (Result, error) {
 	output := content
 	rulesFired := make(map[string]int)
 	ruleDurations := make(map[string]int64)
+	ruleBytes := make(map[string]int)
 	disabled := disabledRuleSet(opts.DisabledRules)
 	enabled := enabledRuleSet(opts.EnabledRules)
 	for _, rule := range rules.RulesForTier(rules.Tier(tier)) {
@@ -68,7 +69,11 @@ func Compress(content []byte, opts Options) (Result, error) {
 		if changeSet.Stats.NodesAffected > 0 {
 			rulesFired[rule.Name()] = changeSet.Stats.NodesAffected
 		}
+		before := len(output)
 		output = render.ApplyEdits(output, changeSet.Edits)
+		if delta := before - len(output); delta != 0 {
+			ruleBytes[rule.Name()] += delta
+		}
 	}
 
 	pluginRules := rules.PluginRulesForTier(rules.Tier(tier))
@@ -86,7 +91,11 @@ func Compress(content []byte, opts Options) (Result, error) {
 		if stats.NodesAffected > 0 {
 			rulesFired[name] = stats.NodesAffected
 		}
+		before := len(output)
 		output = transformed
+		if delta := before - len(output); delta != 0 {
+			ruleBytes[name] += delta
+		}
 	}
 
 	var llmStats LLMRewriteStats
@@ -106,6 +115,7 @@ func Compress(content []byte, opts Options) (Result, error) {
 		BytesAfter:      len(output),
 		RulesFired:      rulesFired,
 		RuleDurationsMS: ruleDurations,
+		RuleBytesSaved:  ruleBytes,
 		LLM:             llmStats,
 	}, nil
 }

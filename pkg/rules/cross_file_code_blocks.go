@@ -40,6 +40,16 @@ func (r *CrossFileCodeBlocks) Apply(ctx *Context) (ChangeSet, error) {
 		hash := crossFileCodeHash(lang, normalized)
 		canonical, firstForFile := ctx.CrossFile.RecordCodeBlock(hash, ctx.FilePath, block.StartLine+1, contentLength)
 		if firstForFile {
+			if len(normalized) < 80 {
+				continue
+			}
+			structHash := structuralHash("code:"+lang, structuralNormalizeCode(normalized, lang))
+			if structCanon, dup := ctx.CrossFile.RecordStructuralCodeBlock(structHash, ctx.FilePath, block.StartLine+1, contentLength); dup {
+				replacement := "[same as " + fileBasename(structCanon.CanonicalFile) + ":" + strconv.Itoa(structCanon.StartLine) + "]\n"
+				if len(replacement) < contentLength {
+					addReplacement(&changes, contentStart, contentEnd, replacement)
+				}
+			}
 			continue
 		}
 

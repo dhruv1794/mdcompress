@@ -35,9 +35,11 @@ func (t Tier) String() string {
 type CrossFileState struct {
 	mu sync.Mutex
 
-	SectionHashes map[string]string
-	SeenSections  map[string]CrossFileSection
-	CodeBlocks    map[string]CrossFileCodeBlock
+	SectionHashes        map[string]string
+	SeenSections         map[string]CrossFileSection
+	StructuralSections   map[string]CrossFileSection
+	CodeBlocks           map[string]CrossFileCodeBlock
+	StructuralCodeBlocks map[string]CrossFileCodeBlock
 }
 
 type CrossFileSection struct {
@@ -74,6 +76,48 @@ func (cfs *CrossFileState) RecordSection(hash, file, heading string, length int)
 		ByteLength:    length,
 	}
 	return true
+}
+
+func (cfs *CrossFileState) RecordStructuralSection(structuralHash, file, heading string, length int) (CrossFileSection, bool) {
+	if cfs == nil {
+		return CrossFileSection{}, false
+	}
+	cfs.mu.Lock()
+	defer cfs.mu.Unlock()
+	if cfs.StructuralSections == nil {
+		cfs.StructuralSections = make(map[string]CrossFileSection)
+	}
+	if existing, ok := cfs.StructuralSections[structuralHash]; ok {
+		return existing, existing.CanonicalFile != file
+	}
+	cfs.StructuralSections[structuralHash] = CrossFileSection{
+		CanonicalFile:  file,
+		SectionHeading: heading,
+		ContentHash:    structuralHash,
+		ByteLength:     length,
+	}
+	return CrossFileSection{}, false
+}
+
+func (cfs *CrossFileState) RecordStructuralCodeBlock(structuralHash, file string, startLine, length int) (CrossFileCodeBlock, bool) {
+	if cfs == nil {
+		return CrossFileCodeBlock{}, false
+	}
+	cfs.mu.Lock()
+	defer cfs.mu.Unlock()
+	if cfs.StructuralCodeBlocks == nil {
+		cfs.StructuralCodeBlocks = make(map[string]CrossFileCodeBlock)
+	}
+	if existing, ok := cfs.StructuralCodeBlocks[structuralHash]; ok {
+		return existing, existing.CanonicalFile != file
+	}
+	cfs.StructuralCodeBlocks[structuralHash] = CrossFileCodeBlock{
+		CanonicalFile: file,
+		ContentHash:   structuralHash,
+		StartLine:     startLine,
+		ByteLength:    length,
+	}
+	return CrossFileCodeBlock{}, false
 }
 
 func (cfs *CrossFileState) RecordCodeBlock(hash, file string, startLine, length int) (CrossFileCodeBlock, bool) {
