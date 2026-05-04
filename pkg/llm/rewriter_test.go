@@ -31,6 +31,28 @@ func longProse() string {
 	return strings.Repeat(sentence, 6)
 }
 
+func TestRewriter_RefusesWhenJudgeMissing(t *testing.T) {
+	rewrite := &stubBackend{name: "ollama", model: "llama3.1:8b"}
+	r := &Rewriter{Backend: rewrite, MinSectionTokens: 20, Threshold: 0.95}
+	_, _, err := r.Rewrite([]byte(longProse() + "\n"))
+	if err == nil || !strings.Contains(err.Error(), "distinct judge backend") {
+		t.Fatalf("expected refusal when Judge is nil, got %v", err)
+	}
+	if len(rewrite.calls) != 0 {
+		t.Fatalf("backend should not be called when judge is missing")
+	}
+}
+
+func TestRewriter_RefusesWhenJudgeMatchesBackend(t *testing.T) {
+	rewrite := &stubBackend{name: "ollama", model: "llama3.1:8b"}
+	judge := &stubBackend{name: "ollama", model: "llama3.1:8b"}
+	r := &Rewriter{Backend: rewrite, Judge: judge, MinSectionTokens: 20, Threshold: 0.95}
+	_, _, err := r.Rewrite([]byte(longProse() + "\n"))
+	if err == nil || !strings.Contains(err.Error(), "evaluator-bias") {
+		t.Fatalf("expected refusal when judge identity matches backend, got %v", err)
+	}
+}
+
 func TestRewriter_RewritesProseSection(t *testing.T) {
 	original := longProse()
 	rewritten := "Streams markdown block events: headings, paragraphs, code spans, and link references."
@@ -41,8 +63,8 @@ func TestRewriter_RewritesProseSection(t *testing.T) {
 		responses: []string{rewritten},
 	}
 	judge := &stubBackend{
-		name:      "ollama",
-		model:     "llama3.1:8b",
+		name:      "anthropic",
+		model:     "claude-3-haiku",
 		responses: []string{`{"score":1.0,"reason":"ok"}`},
 	}
 
@@ -79,8 +101,8 @@ func TestRewriter_FaithfulnessGateRejects(t *testing.T) {
 		responses: []string{"loses facts"},
 	}
 	judge := &stubBackend{
-		name:      "ollama",
-		model:     "llama3.1:8b",
+		name:      "anthropic",
+		model:     "claude-3-haiku",
 		responses: []string{`{"score":0.4,"reason":"loses detail"}`},
 	}
 
@@ -110,7 +132,7 @@ func TestRewriter_SkipsCodeTableQuoteHeading(t *testing.T) {
 	source := []byte("# Heading\n\n> a long blockquote that contains many words and should never be rewritten by tier-3 because the rule is non-negotiable per spec\n\n```\nfunc main() { println(\"this is some code that is intentionally long enough to exceed any token threshold\") }\n```\n\n| col1 | col2 |\n|------|------|\n| this | that |\n| more | data |\n| even | more |\n")
 
 	rewrite := &stubBackend{name: "ollama", model: "llama3.1:8b"}
-	judge := &stubBackend{name: "ollama", model: "llama3.1:8b"}
+	judge := &stubBackend{name: "anthropic", model: "claude-3-haiku"}
 
 	r := &Rewriter{
 		Backend:          rewrite,
@@ -143,8 +165,8 @@ func TestRewriter_CacheHitsAvoidBackend(t *testing.T) {
 		responses: []string{rewritten},
 	}
 	judge := &stubBackend{
-		name:      "ollama",
-		model:     "llama3.1:8b",
+		name:      "anthropic",
+		model:     "claude-3-haiku",
 		responses: []string{`{"score":0.99,"reason":"ok"}`},
 	}
 

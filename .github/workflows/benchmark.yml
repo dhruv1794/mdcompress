@@ -77,7 +77,7 @@ jobs:
             fi
 
             # Tier-2 (aggressive)
-            printf 'version: 1\ntier: aggressive\nrules:\n  disabled:\n    - dedup-cross-section\n    - collapse-example-output\n    - strip-boilerplate-sections\n' > "$DIR/.mdcompress/config.yaml"
+            printf 'version: 1\ntier: aggressive\nrules:\n  disabled: []\n' > "$DIR/.mdcompress/config.yaml"
             rm -rf "$DIR/.mdcompress/cache" "$DIR/.mdcompress/manifest.json"
             (cd "$DIR" && "$MDCOMPRESS" run --all 2>/dev/null) || true
             if [ -f "$DIR/.mdcompress/manifest.json" ]; then
@@ -89,7 +89,7 @@ jobs:
             # README-only (aggressive tier)
             README_PATH=$(cd "$DIR" && find . -maxdepth 1 -iname 'readme.md' | head -1)
             if [ -n "$README_PATH" ] && [ -f "$DIR/$README_PATH" ]; then
-              README_STATS=$(cd "$DIR" && "$MDCOMPRESS" compress --tier=aggressive --disable-rule=dedup-cross-section --disable-rule=collapse-example-output --disable-rule=strip-boilerplate-sections "$README_PATH" 2>&1 >/dev/null) || true
+              README_STATS=$(cd "$DIR" && "$MDCOMPRESS" compress --tier=aggressive "$README_PATH" 2>&1 >/dev/null) || true
               README_BEFORE=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $2}' | sed 's/[->]*//g')
               README_AFTER=$(echo "$README_STATS" | grep '^tokens:' | awk '{print $4}')
               : ${README_BEFORE:=0}

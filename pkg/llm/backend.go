@@ -16,6 +16,8 @@ const (
 	BackendOllama    = "ollama"
 	BackendAnthropic = "anthropic"
 	BackendOpenAI    = "openai"
+	BackendDeepSeek  = "deepseek"
+	BackendBedrock   = "bedrock"
 
 	DefaultBackend  = BackendOllama
 	DefaultModel    = "llama3.1:8b"
@@ -59,6 +61,10 @@ func NewBackend(cfg Config) (Backend, error) {
 		return NewAnthropicBackend(cfg.Endpoint, cfg.Model, cfg.APIKeyEnv), nil
 	case BackendOpenAI:
 		return NewOpenAIBackend(cfg.Endpoint, cfg.Model, cfg.APIKeyEnv), nil
+	case BackendDeepSeek:
+		return NewDeepSeekBackend(cfg.Endpoint, cfg.Model, cfg.APIKeyEnv), nil
+	case BackendBedrock:
+		return NewBedrockBackend(cfg.Endpoint, cfg.Model, cfg.APIKeyEnv), nil
 	default:
 		return nil, fmt.Errorf("unknown llm backend %q", cfg.Backend)
 	}

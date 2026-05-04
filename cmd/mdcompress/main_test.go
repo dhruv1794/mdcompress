@@ -547,6 +547,25 @@ func TestBuildLLMRewriterRejectsUnknownBackend(t *testing.T) {
 	}
 }
 
+func TestBuildLLMRewriterRequiresJudgeBackend(t *testing.T) {
+	_, err := buildLLMRewriter(compress.TierLLM, llmConfig{Backend: "ollama", Model: "llama3.1:8b"})
+	if err == nil || !strings.Contains(err.Error(), "judge_backend") {
+		t.Fatalf("expected judge_backend requirement error, got %v", err)
+	}
+}
+
+func TestBuildLLMRewriterRejectsSelfJudging(t *testing.T) {
+	_, err := buildLLMRewriter(compress.TierLLM, llmConfig{
+		Backend:      "ollama",
+		Model:        "llama3.1:8b",
+		JudgeBackend: "ollama",
+		JudgeModel:   "llama3.1:8b",
+	})
+	if err == nil || !strings.Contains(err.Error(), "evaluator-bias") {
+		t.Fatalf("expected evaluator-bias rejection, got %v", err)
+	}
+}
+
 func TestCompressionOptionsFromConfigUsesAggressiveTierAndDisabledDefaults(t *testing.T) {
 	chdirTemp(t)
 	if err := os.MkdirAll(".mdcompress", 0o755); err != nil {
@@ -566,7 +585,7 @@ func TestCompressionOptionsFromConfigUsesAggressiveTierAndDisabledDefaults(t *te
 }
 
 func TestEvalBackendRequiresExplicitModelForHostedProviders(t *testing.T) {
-	for _, backend := range []string{"openai", "anthropic"} {
+	for _, backend := range []string{"openai", "anthropic", "bedrock"} {
 		if _, err := evalBackend(backend, "", "", "TEST_KEY"); err == nil || !strings.Contains(err.Error(), "requires --model") {
 			t.Fatalf("%s missing model error = %v", backend, err)
 		}
@@ -751,6 +770,44 @@ func TestRunMarkdownNoStaleCheckSkipsBareAutoRefresh(t *testing.T) {
 	}
 	if fileExists(filepath.Join(".mdcompress", "cache", "README.md")) {
 		t.Fatalf("--no-stale-check bare run wrote cache")
+	}
+}
+
+func TestRunMarkdownFiresCrossFileDedup(t *testing.T) {
+	chdirTemp(t)
+
+	contributing := "# Contributing\n\n" +
+		"Thanks for your interest in contributing to this project. Please open an issue " +
+		"first to discuss any significant changes before sending a pull request, and run " +
+		"the test suite locally before pushing your branch upstream.\n"
+
+	if err := os.WriteFile("README.md", []byte("# Project\n\nIntro.\n\n"+contributing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("GUIDE.md", []byte("# Guide\n\nDetails.\n\n"+contributing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := runMarkdown(runOptions{
+		All:      true,
+		Compress: compress.Options{Tier: compress.TierAggressive},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Compressed != 2 {
+		t.Fatalf("summary = %#v, want 2 compressed", summary)
+	}
+
+	readme := readFile(t, filepath.Join(".mdcompress", "cache", "README.md"))
+	guide := readFile(t, filepath.Join(".mdcompress", "cache", "GUIDE.md"))
+
+	// markdownPaths returns files in sorted order, so GUIDE.md is canonical.
+	if strings.Contains(guide, "[same as in") {
+		t.Fatalf("canonical file should keep Contributing body, got:\n%s", guide)
+	}
+	if !strings.Contains(readme, "[same as in GUIDE.md]") {
+		t.Fatalf("later file should reference canonical, got:\n%s", readme)
 	}
 }
 
