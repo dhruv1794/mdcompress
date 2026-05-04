@@ -20,100 +20,144 @@ permissions:
   id-token: write
 
 jobs:
-  benchmark:
+  matrix:
     runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      repos: ${{ steps.repos.outputs.repos }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: repos
+        run: |
+          repos=$(jq -c '.repos' docs/benchmark-repos.json)
+          echo "repos=$repos" >> "$GITHUB_OUTPUT"
+
+  bench:
+    needs: matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: ${{ fromJson(needs.matrix.outputs.repos) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
+
+      - name: Build mdcompress
+        run: go build -o mdcompress ./cmd/mdcompress
+
+      - name: Benchmark ${{ matrix.repo.name }}
+        run: |
+          MDCOMPRESS="$(pwd)/mdcompress"
+          BENCHDIR=/tmp/bench
+          mkdir -p "$BENCHDIR"
+
+          NAME='${{ matrix.repo.name }}'
+          URL='${{ matrix.repo.url }}'
+          SLUG=$(echo "$NAME" | awk '{print tolower($0)}' | sed 's/[^a-z0-9]/_/g')
+          DIR="$BENCHDIR/$SLUG"
+          OUT="$BENCHDIR/result.json"
+
+          rm -rf "$DIR"
+          if ! git clone --depth 1 --quiet "$URL" "$DIR"; then
+            echo "SKIP: clone failed for $NAME"
+            jq -n --arg name "$NAME" '{name:$name, skipped:true}' > "$OUT"
+            cp "$OUT" "result-$SLUG.json"
+            exit 0
+          fi
+
+          TIER1_BEFORE=0; TIER1_AFTER=0; TIER1_FILES=0; TIER1_RULES='{}'
+          TIER2_BEFORE=0; TIER2_AFTER=0; TIER2_RULES='{}'
+          README_BEFORE=0; README_AFTER=0
+
+          mkdir -p "$DIR/.mdcompress"
+
+          # Tier-1 (safe)
+          printf 'version: 1\ntier: safe\nrules:\n  disabled: []\n' > "$DIR/.mdcompress/config.yaml"
+          (cd "$DIR" && "$MDCOMPRESS" run --all 2>/dev/null) || true
+          if [ -f "$DIR/.mdcompress/manifest.json" ]; then
+            TIER1_BEFORE=$(jq '.totals.tokens_before' "$DIR/.mdcompress/manifest.json")
+            TIER1_AFTER=$(jq '.totals.tokens_after' "$DIR/.mdcompress/manifest.json")
+            TIER1_FILES=$(jq '.totals.files' "$DIR/.mdcompress/manifest.json")
+            TIER1_RULES=$(jq -c '[.entries | to_entries | .[].value.rules_fired] | add' "$DIR/.mdcompress/manifest.json")
+          fi
+
+          # Tier-2 (aggressive)
+          # dedup-cross-section has a 256KB-per-file size guard but is still
+          # the costliest aggressive rule on large doc trees; opt out for the
+          # full-tree pass and rely on the README-only pass below to measure
+          # its README impact.
+          printf 'version: 1\ntier: aggressive\nrules:\n  disabled:\n    - dedup-cross-section\n  enabled:\n    - strip-boilerplate-sections\n    - collapse-example-output\n' > "$DIR/.mdcompress/config.yaml"
+          rm -rf "$DIR/.mdcompress/cache" "$DIR/.mdcompress/manifest.json"
+          (cd "$DIR" && "$MDCOMPRESS" run --all 2>/dev/null) || true
+          if [ -f "$DIR/.mdcompress/manifest.json" ]; then
+            TIER2_BEFORE=$(jq '.totals.tokens_before' "$DIR/.mdcompress/manifest.json")
+            TIER2_AFTER=$(jq '.totals.tokens_after' "$DIR/.mdcompress/manifest.json")
+            TIER2_RULES=$(jq -c '[.entries | to_entries | .[].value.rules_fired] | add' "$DIR/.mdcompress/manifest.json")
+          fi
+
+          # README-only (aggressive tier)
+          README_PATH=$(cd "$DIR" && find . -maxdepth 1 -iname 'readme.md' | head -1)
+          if [ -n "$README_PATH" ] && [ -f "$DIR/$README_PATH" ]; then
+            README_STATS=$(cd "$DIR" && "$MDCOMPRESS" compress --tier=aggressive --enable-rule=strip-boilerplate-sections --enable-rule=collapse-example-output "$README_PATH" 2>&1 >/dev/null) || true
+            README_TOKENS=$(echo "$README_STATS" | sed -nE 's/^tokens[^:]*: ([0-9]+) -> ([0-9]+).*/\1 \2/p')
+            README_BEFORE=$(echo "$README_TOKENS" | awk '{print $1}')
+            README_AFTER=$(echo "$README_TOKENS" | awk '{print $2}')
+            : ${README_BEFORE:=0}
+            : ${README_AFTER:=0}
+          fi
+
+          : ${TIER1_BEFORE:=0}; : ${TIER1_AFTER:=0}; : ${TIER1_FILES:=0}; : ${TIER1_RULES:="{}"}
+          : ${TIER2_BEFORE:=0}; : ${TIER2_AFTER:=0}; : ${TIER2_RULES:="{}"}
+          : ${README_BEFORE:=0}; : ${README_AFTER:=0}
+
+          jq -n --arg name "$NAME" \
+             --argjson t1b "$TIER1_BEFORE" --argjson t1a "$TIER1_AFTER" \
+             --argjson t1f "$TIER1_FILES" \
+             --argjson t2b "$TIER2_BEFORE" --argjson t2a "$TIER2_AFTER" \
+             --argjson rb "$README_BEFORE" --argjson ra "$README_AFTER" \
+             --argjson t1r "$TIER1_RULES" --argjson t2r "$TIER2_RULES" \
+             '{name:$name, tier1_before:$t1b, tier1_after:$t1a, tier1_files:$t1f, tier2_before:$t2b, tier2_after:$t2a, readme_before:$rb, readme_after:$ra, tier1_rules:$t1r, tier2_rules:$t2r}' \
+             > "result-$SLUG.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ strategy.job-index }}
+          path: result-*.json
+          if-no-files-found: warn
+          retention-days: 1
+
+  combine:
+    needs: bench
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: { go-version: '1.22' }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
 
-      - name: Build mdcompress
-        run: go build -o mdcompress ./cmd/mdcompress
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/bench-results
+          pattern: bench-*
+          merge-multiple: true
 
-      - name: Run benchmarks
+      - name: Combine results
         run: |
-          MDCOMPRESS="$(pwd)/mdcompress"
-          BENCHDIR=/tmp/bench
-          WORKDIR="$(pwd)"
-          mkdir -p "$BENCHDIR"
-          RESULTS_JSON="$BENCHDIR/results.json"
-          echo '[]' > "$RESULTS_JSON"
-
-          REPO_COUNT=$(jq '.repos | length' docs/benchmark-repos.json)
-          i=0
-          while [ "$i" -lt "$REPO_COUNT" ]; do
-            NAME=$(jq -r ".repos[$i].name" docs/benchmark-repos.json)
-            URL=$(jq -r ".repos[$i].url" docs/benchmark-repos.json)
-            DIR="$BENCHDIR/$(echo "$NAME" | awk '{print tolower($0)}' | sed 's/ /_/g')"
-            echo "::group::$NAME ($URL)"
-
-            rm -rf "$DIR"
-            if ! git clone --depth 1 --quiet "$URL" "$DIR" 2>/dev/null; then
-              echo "SKIP: clone failed for $NAME"
-              echo "::endgroup::"
-              i=$((i + 1))
-              continue
-            fi
-
-            TIER1_BEFORE=0; TIER1_AFTER=0; TIER1_FILES=0; TIER1_RULES='{}'
-            TIER2_BEFORE=0; TIER2_AFTER=0; TIER2_RULES='{}'
-            README_BEFORE=0; README_AFTER=0
-
-            mkdir -p "$DIR/.mdcompress"
-
-            # Tier-1 (safe)
-            printf 'version: 1\ntier: safe\nrules:\n  disabled: []\n' > "$DIR/.mdcompress/config.yaml"
-            (cd "$DIR" && "$MDCOMPRESS" run --all 2>/dev/null) || true
-            if [ -f "$DIR/.mdcompress/manifest.json" ]; then
-              TIER1_BEFORE=$(jq '.totals.tokens_before' "$DIR/.mdcompress/manifest.json")
-              TIER1_AFTER=$(jq '.totals.tokens_after' "$DIR/.mdcompress/manifest.json")
-              TIER1_FILES=$(jq '.totals.files' "$DIR/.mdcompress/manifest.json")
-              TIER1_RULES=$(jq -c '[.entries | to_entries | .[].value.rules_fired] | add' "$DIR/.mdcompress/manifest.json")
-            fi
-
-            # Tier-2 (aggressive)
-            printf 'version: 1\ntier: aggressive\nrules:\n  disabled: []\n  enabled:\n    - strip-boilerplate-sections\n    - collapse-example-output\n' > "$DIR/.mdcompress/config.yaml"
-            rm -rf "$DIR/.mdcompress/cache" "$DIR/.mdcompress/manifest.json"
-            (cd "$DIR" && "$MDCOMPRESS" run --all 2>/dev/null) || true
-            if [ -f "$DIR/.mdcompress/manifest.json" ]; then
-              TIER2_BEFORE=$(jq '.totals.tokens_before' "$DIR/.mdcompress/manifest.json")
-              TIER2_AFTER=$(jq '.totals.tokens_after' "$DIR/.mdcompress/manifest.json")
-              TIER2_RULES=$(jq -c '[.entries | to_entries | .[].value.rules_fired] | add' "$DIR/.mdcompress/manifest.json")
-            fi
-
-            # README-only (aggressive tier)
-            README_PATH=$(cd "$DIR" && find . -maxdepth 1 -iname 'readme.md' | head -1)
-            if [ -n "$README_PATH" ] && [ -f "$DIR/$README_PATH" ]; then
-              README_STATS=$(cd "$DIR" && "$MDCOMPRESS" compress --tier=aggressive --enable-rule=strip-boilerplate-sections --enable-rule=collapse-example-output "$README_PATH" 2>&1 >/dev/null) || true
-              README_TOKENS=$(echo "$README_STATS" | sed -nE 's/^tokens[^:]*: ([0-9]+) -> ([0-9]+).*/\1 \2/p')
-              README_BEFORE=$(echo "$README_TOKENS" | awk '{print $1}')
-              README_AFTER=$(echo "$README_TOKENS" | awk '{print $2}')
-              : ${README_BEFORE:=0}
-              : ${README_AFTER:=0}
-            fi
-
-            # ensure all variables have valid JSON defaults before the jq call
-            : ${TIER1_BEFORE:=0}; : ${TIER1_AFTER:=0}; : ${TIER1_FILES:=0}; : ${TIER1_RULES:="{}"}
-            : ${TIER2_BEFORE:=0}; : ${TIER2_AFTER:=0}; : ${TIER2_RULES:="{}"}
-            : ${README_BEFORE:=0}; : ${README_AFTER:=0}
-
-            jq --arg name "$NAME" --argjson t1b "$TIER1_BEFORE" --argjson t1a "$TIER1_AFTER" \
-               --argjson t1f "$TIER1_FILES" --argjson t2b "$TIER2_BEFORE" --argjson t2a "$TIER2_AFTER" \
-               --argjson rb "$README_BEFORE" --argjson ra "$README_AFTER" \
-               --argjson t1r "$TIER1_RULES" --argjson t2r "$TIER2_RULES" \
-               '. += [{name:$name, tier1_before:$t1b, tier1_after:$t1a, tier1_files:$t1f, tier2_before:$t2b, tier2_after:$t2a, readme_before:$rb, readme_after:$ra, tier1_rules:$t1r, tier2_rules:$t2r}]' \
-               "$RESULTS_JSON" > "$BENCHDIR/tmp.json" && mv "$BENCHDIR/tmp.json" "$RESULTS_JSON"
-
-            echo "::endgroup::"
-            i=$((i + 1))
-          done
-
-          cp "$RESULTS_JSON" docs/site/public/benchmark-data.json
+          shopt -s nullglob
+          files=(/tmp/bench-results/result-*.json)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo '[]' > docs/site/public/benchmark-data.json
+          else
+            jq -s '[ .[] | select(.skipped != true) ]' "${files[@]}" > docs/site/public/benchmark-data.json
+          fi
+          jq 'length' docs/site/public/benchmark-data.json
 
       - name: Build React site
         run: |

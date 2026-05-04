@@ -27,28 +27,84 @@ type dedupSentence struct {
 	Text  string
 }
 
+type dedupAnalyzedSentence struct {
+	sentence dedupSentence
+	tokens   map[string]bool
+	words    int
+}
+
 var dedupTokenPattern = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9._/-]*`)
 
+// dedupMaxSourceBytes caps the rule at ~256KB of source. The hot loop is
+// O(intro·body) per file with regex tokenization at every step; on multi-MB
+// reference docs this stalls a CI runner for tens of minutes. Files this large
+// almost always carry their per-claim detail in tables or code, not in
+// intro→body prose pairs the rule can match.
+const dedupMaxSourceBytes = 256 * 1024
+
+// dedupMaxSentencePairs caps the inner-loop work after analysis-time prefilters.
+// 250k pairs corresponds to a ~500×500 sentence file, well above any realistic
+// hand-written doc.
+const dedupMaxSentencePairs = 250_000
+
 func (r *DedupCrossSection) Apply(ctx *Context) (ChangeSet, error) {
+	if len(ctx.Source) > dedupMaxSourceBytes {
+		return ChangeSet{}, nil
+	}
 
 	paragraphs := dedupParagraphs(sourceLines(ctx.Source), ctx.Source)
-	intro := dedupIntroSentences(paragraphs)
-	body := dedupBodySentences(paragraphs)
-	var changes ChangeSet
+	intro := dedupAnalyzeSentences(dedupIntroSentences(paragraphs))
+	body := dedupAnalyzeSentences(dedupBodySentences(paragraphs))
+	if len(intro) == 0 || len(body) == 0 {
+		return ChangeSet{}, nil
+	}
+	if len(intro)*len(body) > dedupMaxSentencePairs {
+		return ChangeSet{}, nil
+	}
 
+	var changes ChangeSet
 	for _, sentence := range intro {
-		if !dedupSentenceIsClaim(sentence.Text) {
+		if !dedupSentenceIsClaim(sentence.sentence.Text) {
 			continue
 		}
+		minBodyWords := sentence.words + 3
 		for _, candidate := range body {
-			if dedupBodySupersedesIntro(sentence.Text, candidate.Text) {
-				addRange(&changes, dedupRemovalRange(ctx.Source, sentence))
+			if candidate.words < minBodyWords {
+				continue
+			}
+			if len(candidate.tokens) <= len(sentence.tokens) {
+				continue
+			}
+			if dedupBodySupersedesAnalyzed(sentence, candidate) {
+				addRange(&changes, dedupRemovalRange(ctx.Source, sentence.sentence))
 				break
 			}
 		}
 	}
 
 	return changes, nil
+}
+
+func dedupAnalyzeSentences(sentences []dedupSentence) []dedupAnalyzedSentence {
+	analyzed := make([]dedupAnalyzedSentence, len(sentences))
+	for index, sentence := range sentences {
+		analyzed[index] = dedupAnalyzedSentence{
+			sentence: sentence,
+			tokens:   dedupMeaningfulTokens(sentence.Text),
+			words:    wordCount(strings.TrimSpace(sentence.Text)),
+		}
+	}
+	return analyzed
+}
+
+func dedupBodySupersedesAnalyzed(intro, body dedupAnalyzedSentence) bool {
+	if len(intro.tokens) < 5 {
+		return false
+	}
+	if !dedupSpecialTokensPreserved(intro.sentence.Text, body.sentence.Text) {
+		return false
+	}
+	return dedupCoverage(intro.tokens, body.tokens) >= 0.85
 }
 
 func dedupParagraphs(lines []sourceLine, source []byte) []dedupParagraph {
@@ -188,22 +244,6 @@ func dedupSentenceIsClaim(text string) bool {
 		return false
 	}
 	return true
-}
-
-func dedupBodySupersedesIntro(intro, body string) bool {
-	introTokens := dedupMeaningfulTokens(intro)
-	bodyTokens := dedupMeaningfulTokens(body)
-	if len(introTokens) < 5 || len(bodyTokens) <= len(introTokens) {
-		return false
-	}
-	if wordCount(body) < wordCount(intro)+3 {
-		return false
-	}
-	if !dedupSpecialTokensPreserved(intro, body) {
-		return false
-	}
-	coverage := dedupCoverage(introTokens, bodyTokens)
-	return coverage >= 0.85
 }
 
 func dedupMeaningfulTokens(text string) map[string]bool {

@@ -29,13 +29,14 @@ type Totals struct {
 }
 
 type Entry struct {
-	Source       string         `json:"source"`
-	Cache        string         `json:"cache"`
-	SHA256       string         `json:"sha256"`
-	TokensBefore int            `json:"tokens_before"`
-	TokensAfter  int            `json:"tokens_after"`
-	CompressedAt time.Time      `json:"compressed_at"`
-	RulesFired   map[string]int `json:"rules_fired"`
+	Source          string           `json:"source"`
+	Cache           string           `json:"cache"`
+	SHA256          string           `json:"sha256"`
+	TokensBefore    int              `json:"tokens_before"`
+	TokensAfter     int              `json:"tokens_after"`
+	CompressedAt    time.Time        `json:"compressed_at"`
+	RulesFired      map[string]int   `json:"rules_fired"`
+	RuleDurationsMS map[string]int64 `json:"rule_durations_ms,omitempty"`
 }
 
 func New() *Manifest {

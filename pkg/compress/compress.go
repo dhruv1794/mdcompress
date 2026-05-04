@@ -2,6 +2,8 @@
 package compress
 
 import (
+	"time"
+
 	"github.com/dhruv1794/mdcompress/pkg/parser"
 	"github.com/dhruv1794/mdcompress/pkg/render"
 	"github.com/dhruv1794/mdcompress/pkg/rules"
@@ -26,6 +28,7 @@ func Compress(content []byte, opts Options) (Result, error) {
 
 	output := content
 	rulesFired := make(map[string]int)
+	ruleDurations := make(map[string]int64)
 	disabled := disabledRuleSet(opts.DisabledRules)
 	enabled := enabledRuleSet(opts.EnabledRules)
 	for _, rule := range rules.RulesForTier(rules.Tier(tier)) {
@@ -45,6 +48,7 @@ func Compress(content []byte, opts Options) (Result, error) {
 
 		var changeSet rules.ChangeSet
 		var err error
+		started := time.Now()
 		switch typedRule := rule.(type) {
 		case rules.ASTRule:
 			doc, parseErr := parser.Parse(output)
@@ -57,6 +61,7 @@ func Compress(content []byte, opts Options) (Result, error) {
 		default:
 			continue
 		}
+		ruleDurations[rule.Name()] += time.Since(started).Milliseconds()
 		if err != nil {
 			continue
 		}
@@ -72,7 +77,9 @@ func Compress(content []byte, opts Options) (Result, error) {
 		if (disabled[name] || rules.DefaultDisabled(name)) && !enabled[name] {
 			continue
 		}
+		started := time.Now()
 		transformed, stats, err := rules.PluginApply(plugin, output)
+		ruleDurations[name] += time.Since(started).Milliseconds()
 		if err != nil {
 			continue
 		}
@@ -92,13 +99,14 @@ func Compress(content []byte, opts Options) (Result, error) {
 	}
 
 	return Result{
-		Output:       output,
-		TokensBefore: tokens.Count(content),
-		TokensAfter:  tokens.Count(output),
-		BytesBefore:  len(content),
-		BytesAfter:   len(output),
-		RulesFired:   rulesFired,
-		LLM:          llmStats,
+		Output:          output,
+		TokensBefore:    tokens.Count(content),
+		TokensAfter:     tokens.Count(output),
+		BytesBefore:     len(content),
+		BytesAfter:      len(output),
+		RulesFired:      rulesFired,
+		RuleDurationsMS: ruleDurations,
+		LLM:             llmStats,
 	}, nil
 }
 
