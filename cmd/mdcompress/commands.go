@@ -14,6 +14,7 @@ func runCommand() *cobra.Command {
 	var changed bool
 	var noStaleCheck bool
 	var quiet bool
+	var verbose bool
 	var enabledRules []string
 	var disabledRules []string
 	var tier string
@@ -33,6 +34,7 @@ func runCommand() *cobra.Command {
 				Staged:       staged,
 				Changed:      changed,
 				NoStaleCheck: noStaleCheck,
+				Verbose:      verbose,
 				Compress:     compressOpts,
 			})
 			if err != nil {
@@ -51,6 +53,7 @@ func runCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&changed, "changed", false, "compress markdown files changed by the last merge")
 	cmd.Flags().BoolVar(&noStaleCheck, "no-stale-check", false, "when run without paths, skip automatic stale cache refresh")
 	cmd.Flags().BoolVar(&quiet, "quiet", false, "suppress non-error output")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "print warnings for rules that errored during compression")
 	cmd.Flags().StringVar(&tier, "tier", "", "compression tier: safe, aggressive, llm (default: config tier or safe)")
 	cmd.Flags().StringSliceVar(&enabledRules, "enable-rule", nil, "opt-in rule to enable; may be repeated")
 	cmd.Flags().StringSliceVar(&disabledRules, "disable-rule", nil, "rule to disable; may be repeated")

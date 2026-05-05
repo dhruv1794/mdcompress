@@ -4,7 +4,6 @@ package compress
 import (
 	"time"
 
-	"github.com/dhruv1794/mdcompress/pkg/parser"
 	"github.com/dhruv1794/mdcompress/pkg/render"
 	"github.com/dhruv1794/mdcompress/pkg/rules"
 	"github.com/dhruv1794/mdcompress/pkg/tokens"
@@ -30,6 +29,7 @@ func Compress(content []byte, opts Options) (Result, error) {
 	rulesFired := make(map[string]int)
 	ruleDurations := make(map[string]int64)
 	ruleBytes := make(map[string]int)
+	ruleErrors := make(map[string]string)
 	disabled := disabledRuleSet(opts.DisabledRules)
 	enabled := enabledRuleSet(opts.EnabledRules)
 	for _, rule := range rules.RulesForTier(rules.Tier(tier)) {
@@ -50,20 +50,14 @@ func Compress(content []byte, opts Options) (Result, error) {
 		var changeSet rules.ChangeSet
 		var err error
 		started := time.Now()
-		switch typedRule := rule.(type) {
-		case rules.ASTRule:
-			doc, parseErr := parser.Parse(output)
-			if parseErr != nil {
-				return Result{}, parseErr
-			}
-			changeSet, err = typedRule.ApplyAST(doc, ctx)
-		case rules.LineRule:
-			changeSet, err = typedRule.Apply(ctx)
-		default:
+		lineRule, ok := rule.(rules.LineRule)
+		if !ok {
 			continue
 		}
+		changeSet, err = lineRule.Apply(ctx)
 		ruleDurations[rule.Name()] += time.Since(started).Milliseconds()
 		if err != nil {
+			ruleErrors[rule.Name()] = err.Error()
 			continue
 		}
 		if changeSet.Stats.NodesAffected > 0 {
@@ -86,6 +80,7 @@ func Compress(content []byte, opts Options) (Result, error) {
 		transformed, stats, err := rules.PluginApply(plugin, output)
 		ruleDurations[name] += time.Since(started).Milliseconds()
 		if err != nil {
+			ruleErrors[name] = err.Error()
 			continue
 		}
 		if stats.NodesAffected > 0 {
@@ -101,7 +96,9 @@ func Compress(content []byte, opts Options) (Result, error) {
 	var llmStats LLMRewriteStats
 	if Tier(tier) == TierLLM && opts.LLMRewriter != nil {
 		rewritten, stats, err := opts.LLMRewriter.Rewrite(output)
-		if err == nil {
+		if err != nil {
+			ruleErrors["llm-rewrite"] = err.Error()
+		} else {
 			output = rewritten
 		}
 		llmStats = stats
@@ -116,6 +113,7 @@ func Compress(content []byte, opts Options) (Result, error) {
 		RulesFired:      rulesFired,
 		RuleDurationsMS: ruleDurations,
 		RuleBytesSaved:  ruleBytes,
+		RuleErrors:      ruleErrors,
 		LLM:             llmStats,
 	}, nil
 }

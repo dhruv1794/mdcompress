@@ -47,6 +47,18 @@ const dedupMaxSourceBytes = 256 * 1024
 // hand-written doc.
 const dedupMaxSentencePairs = 250_000
 
+// dedupBodyCoverageThreshold is the fraction of an intro sentence's meaningful
+// tokens that must appear in a candidate body sentence for the body to be
+// considered a superset (and the intro to be safely removed). 0.85 keeps a
+// little slack for paraphrasing while still requiring substantial overlap.
+const dedupBodyCoverageThreshold = 0.85
+
+// dedupMinIntroTokens is the minimum number of meaningful tokens an intro
+// sentence must carry before we even consider treating it as a claim subsumed
+// by the body. Fewer tokens means there isn't enough content for a coverage
+// ratio to be reliable.
+const dedupMinIntroTokens = 5
+
 func (r *DedupCrossSection) Apply(ctx *Context) (ChangeSet, error) {
 	if len(ctx.Source) > dedupMaxSourceBytes {
 		return ChangeSet{}, nil
@@ -98,13 +110,13 @@ func dedupAnalyzeSentences(sentences []dedupSentence) []dedupAnalyzedSentence {
 }
 
 func dedupBodySupersedesAnalyzed(intro, body dedupAnalyzedSentence) bool {
-	if len(intro.tokens) < 5 {
+	if len(intro.tokens) < dedupMinIntroTokens {
 		return false
 	}
 	if !dedupSpecialTokensPreserved(intro.sentence.Text, body.sentence.Text) {
 		return false
 	}
-	return dedupCoverage(intro.tokens, body.tokens) >= 0.85
+	return dedupCoverage(intro.tokens, body.tokens) >= dedupBodyCoverageThreshold
 }
 
 func dedupParagraphs(lines []sourceLine, source []byte) []dedupParagraph {
@@ -134,6 +146,11 @@ func dedupParagraphs(lines []sourceLine, source []byte) []dedupParagraph {
 		}
 
 		start := index
+		// Always consume the line that satisfied the outer paragraph-start
+		// check. The inner break conditions (especially looksTableRow on a
+		// line containing inline-code `|`) can match the first line and would
+		// otherwise leave index unchanged and infinite-loop.
+		index++
 		for index < len(lines) {
 			current := lines[index]
 			currentTrimmed := strings.TrimSpace(current.Text)

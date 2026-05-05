@@ -28,6 +28,9 @@ func (r *Frontmatter) Apply(ctx *Context) (ChangeSet, error) {
 
 	closeStart := len(delim) + closeIdx
 	closeEnd := closeStart + len(delim)
+	if closeEnd < len(source) && source[closeEnd] == '\r' {
+		closeEnd++
+	}
 	if closeEnd < len(source) && source[closeEnd] == '\n' {
 		closeEnd++
 	}

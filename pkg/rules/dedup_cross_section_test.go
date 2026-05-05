@@ -77,6 +77,26 @@ func TestDedupCrossSectionSkipsLargeFilesQuickly(t *testing.T) {
 	}
 }
 
+// Regression: a paragraph line containing inline-code with `|` (e.g. the
+// regex character class below) used to wedge dedupParagraphs into an infinite
+// loop, ballooning memory until the process was OOM-killed.
+func TestDedupCrossSectionTerminatesWithInlineCodePipe(t *testing.T) {
+	input := []byte("# Doc\n\nIntro paragraph mentions tokens.\n\n## Body\n\n" +
+		"While the first part up to the first `|` contains a list of single control characters at which the string should be split, the rest is irrelevant.\n\n" +
+		"Body sentence about tokens with extra detail and concrete numbers like 4318 and 5318 and additional context for the reader.\n")
+
+	done := make(chan struct{})
+	go func() {
+		applyDedupCrossSection(t, input)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("dedup-cross-section did not terminate on a paragraph with inline-code |")
+	}
+}
+
 func BenchmarkDedupCrossSectionMediumDoc(b *testing.B) {
 	var sb strings.Builder
 	sb.WriteString("# Doc\n\nIntro: project uses port `4318` by default for OTLP traces.\n\n## Body\n\n")

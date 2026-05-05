@@ -33,6 +33,10 @@ func TestRegistryOrderInvariants(t *testing.T) {
 	assertBefore("dedup-cross-file-code-blocks", "truncate-large-code-blocks")
 	assertBefore("truncate-large-code-blocks", "dedup-multilang-examples")
 	assertBefore("compact-tables", "collapse-blank-lines")
+	// Frontmatter is the only structurally-required-first rule; document it.
+	if order["strip-frontmatter"] != 0 {
+		t.Fatalf("strip-frontmatter must be the first rule (was at %d)", order["strip-frontmatter"])
+	}
 
 	if got := allRules[len(allRules)-1].Name(); got != "collapse-blank-lines" {
 		t.Fatalf("collapse-blank-lines should remain the final cleanup rule, got final rule %s", got)

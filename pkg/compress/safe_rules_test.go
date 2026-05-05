@@ -2,6 +2,7 @@ package compress_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/dhruv1794/mdcompress/pkg/compress"
@@ -302,15 +303,20 @@ func TestCompressCrossFileDupesNilState(t *testing.T) {
 }
 
 func TestCompressChangelogCompression(t *testing.T) {
-	input := []byte("# Changelog\n\n## [1.2.0] - 2024-01-01\n\n- Added new feature X\n- Fixed bug in Y\n- Improved performance of Z\n- Updated documentation\n\n## [1.1.0] - 2023-12-01\n\n- Initial release\n- Startup script\n")
-	result, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive, FilePath: "CHANGELOG.md"})
+	input := []byte("# Changelog\n\n## [1.2.0] - 2024-01-01\n\n- Added new feature X ([#101](https://github.com/o/r/pull/101))\n- Fixed bug in Y (@alice)\n- Improved performance of Z\n\n## [1.1.0] - 2023-12-01\n\n- Initial release\n")
+	result, err := compress.Compress(input, compress.Options{Tier: compress.TierSafe, FilePath: "CHANGELOG.md"})
 	if err != nil {
 		t.Fatalf("Compress() error = %v", err)
 	}
-	if !bytes.Contains(result.Output, []byte("Added new feature X")) {
-		t.Fatalf("changelog not compressed properly: %q", result.Output)
+	out := string(result.Output)
+	for _, want := range []string{"Added new feature X", "Fixed bug in Y", "Improved performance of Z", "Initial release"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("description %q removed by changelog rule: %q", want, out)
+		}
 	}
-	if bytes.Count(result.Output, []byte("\n- ")) > 0 {
-		t.Fatalf("bullet points should be collapsed: %q", result.Output)
+	for _, drop := range []string{"#101", "@alice", "2024-01-01", "2023-12-01"} {
+		if strings.Contains(out, drop) {
+			t.Fatalf("tracking token %q should have been stripped: %q", drop, out)
+		}
 	}
 }
