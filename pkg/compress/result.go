@@ -13,6 +13,10 @@ type Result struct {
 	// canonical signal for cost-vs-savings analysis.
 	RuleDurationsMS map[string]int64
 	RuleBytesSaved  map[string]int
+	// RuleErrors records rules and plugins that returned an error during
+	// compression. The compression continues without that rule's edits, but
+	// callers can surface the failure (verbose run, doctor, MCP).
+	RuleErrors map[string]string
 	// LLM is populated when Tier == TierLLM and an LLMRewriter ran. A zero
 	// value means Tier-3 was not invoked.
 	LLM LLMRewriteStats

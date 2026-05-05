@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/dhruv1794/mdcompress/pkg/parser"
 	"github.com/dhruv1794/mdcompress/pkg/render"
 	"github.com/dhruv1794/mdcompress/pkg/rules"
 )
@@ -44,12 +43,8 @@ func TestHTMLCommentsIgnoresBrokenComment(t *testing.T) {
 
 func applyHTMLComments(t *testing.T, input []byte) []byte {
 	t.Helper()
-	doc, err := parser.Parse(input)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
 	rule := &rules.HTMLComments{}
-	changes, err := rule.ApplyAST(doc, &rules.Context{Source: input, Config: &rules.Config{Tier: rules.TierSafe}})
+	changes, err := rule.Apply(&rules.Context{Source: input, Config: &rules.Config{Tier: rules.TierSafe}})
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}

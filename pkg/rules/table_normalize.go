@@ -65,9 +65,15 @@ func (r *TableNormalize) Apply(ctx *Context) (ChangeSet, error) {
 
 		compacted := compactTableLines(lines[tableStart:tableEnd])
 		replacement := strings.Join(compacted, "\n") + "\n"
-		addReplacement(&changes,
-			lines[tableStart].Start, lines[tableEnd-1].End,
-			replacement)
+		// Only emit if the rewrite actually shrinks the table. Pipe-table
+		// rewriting can inflate alignment-padded tables (e.g. React docs)
+		// because " | " separators are wider than the original column padding.
+		origLen := lines[tableEnd-1].End - lines[tableStart].Start
+		if len(replacement) < origLen {
+			addReplacement(&changes,
+				lines[tableStart].Start, lines[tableEnd-1].End,
+				replacement)
+		}
 
 		i = tableEnd - 1
 	}

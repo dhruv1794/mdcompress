@@ -21,6 +21,7 @@ type runOptions struct {
 	Staged       bool
 	Changed      bool
 	NoStaleCheck bool
+	Verbose      bool
 	Compress     compress.Options
 }
 
@@ -78,6 +79,12 @@ func runMarkdown(opts runOptions) (runSummary, error) {
 			RulesFired:      result.RulesFired,
 			RuleDurationsMS: result.RuleDurationsMS,
 			RuleBytesSaved:  result.RuleBytesSaved,
+			RuleErrors:      result.RuleErrors,
+		}
+		if len(result.RuleErrors) > 0 && opts.Verbose {
+			for name, msg := range result.RuleErrors {
+				fmt.Fprintf(os.Stderr, "warn: %s: rule %s failed: %s\n", input.Rel, name, msg)
+			}
 		}
 		summary.Compressed++
 	}

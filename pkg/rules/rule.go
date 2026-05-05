@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
 )
 
 // Tier identifies a rule's risk level.
@@ -184,14 +183,9 @@ type Rule interface {
 	Tier() Tier
 }
 
-// LineRule reads source bytes and emits byte-range edits.
+// LineRule reads source bytes and emits byte-range edits. All rules in this
+// package are LineRules; the engine no longer parses to an AST.
 type LineRule interface {
 	Rule
 	Apply(ctx *Context) (ChangeSet, error)
-}
-
-// ASTRule reads a parsed markdown AST and emits byte-range edits.
-type ASTRule interface {
-	Rule
-	ApplyAST(doc ast.Node, ctx *Context) (ChangeSet, error)
 }

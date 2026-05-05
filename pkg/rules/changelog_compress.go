@@ -3,152 +3,145 @@ package rules
 import (
 	"regexp"
 	"strings"
+
+	"github.com/dhruv1794/mdcompress/pkg/render"
 )
 
+// ChangelogCompress is a lossless rule that strips tracking IDs and chrome
+// from changelog files: PR/issue links, GitHub user-profile links, author
+// attributions, and date suffixes in version headings. The actual change
+// description on each bullet is preserved.
 type ChangelogCompress struct{}
 
 func (r *ChangelogCompress) Name() string { return "compress-changelogs" }
-func (r *ChangelogCompress) Tier() Tier   { return TierAggressive }
+func (r *ChangelogCompress) Tier() Tier   { return TierSafe }
 
-var changelogVersionPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)^(?:#+\s*)?\[?v?(\d+\.\d+[\.\d]*.*?)\]?\s*(?:[-–—]\s*(?:\d{4}[-/]\d{2}[-/]\d{2}|\[\d{4}[-/]\d{2}[-/]\d{2}\]|unreleased|latest)\s*)?$`),
-	regexp.MustCompile(`(?i)^(?:#+\s*)?(unreleased|upcoming)\s*$`),
+// File-level activation: a file is treated as a changelog if its path
+// references "changelog" or "release", or if a top-of-file heading matches
+// one of the changelog-section names.
+var changelogPathPattern = regexp.MustCompile(`(?i)(^|/)(changelog|change[-_]log|release[-_]?notes|releases|history)([.-]|$)`)
+
+var changelogTopHeadingPattern = regexp.MustCompile(`(?i)^#+\s*(changelog|change log|release notes|releases|history|version history|what'?s new)\s*$`)
+
+// Patterns we strip per line. Each match removes a "tracking" token that an
+// LLM gains nothing from. The order matters: more specific patterns run first
+// so the broader fallbacks don't eat the wrong text.
+var changelogStripPatterns = []*regexp.Regexp{
+	// `(@user [#123](url), [#124](url))` — author + multiple PR refs
+	regexp.MustCompile(`\s*\(@[\w-]+(?:\s+(?:in\s+)?\[#\d+\]\([^)]+\))+(?:\s*,\s*\[#\d+\]\([^)]+\))*\)`),
+	// `([user](https://github.com/user) in [#123](url))` — link author + PR
+	regexp.MustCompile(`\s*\(\[[\w][\w.-]*\]\(https?://github\.com/[\w-]+/?\)\s+in\s+\[#\d+\]\([^)]+\)\)`),
+	// `([u1](url) & [u2](url) in [#123](url))` — co-authors + PR
+	regexp.MustCompile(`\s*\(\[[\w][\w.-]*\]\(https?://github\.com/[\w-]+/?\)(?:\s*[&,]\s*\[[\w][\w.-]*\]\(https?://github\.com/[\w-]+/?\))+\s+in\s+\[#\d+\]\([^)]+\)\)`),
+	// `([user1](url) & [user2](url))` or `([user1](url), [user2](url))`
+	regexp.MustCompile(`\s*\(\[[\w][\w.-]*\]\(https?://github\.com/[\w-]+/?\)(?:\s*[&,]\s*\[[\w][\w.-]*\]\(https?://github\.com/[\w-]+/?\))+\)`),
+	// `([user](https://github.com/user))`
+	regexp.MustCompile(`\s*\(\[[\w][\w.-]*\]\(https?://github\.com/[\w-]+/?\)\)`),
+	// `([#1234](url))` or `([#1234](url), [#1235](url))`
+	regexp.MustCompile(`\s*\(\[#\d+\]\([^)]+\)(?:\s*,\s*\[#\d+\]\([^)]+\))*\)`),
+	// `(thanks @user)` / `(thanks to @user)` / `(by @user)` / `(@user)`
+	regexp.MustCompile(`\s*\((?:thanks(?:\s+to)?|by|h/t)\s+@[\w-]+(?:\s*,\s*@[\w-]+)*\)`),
+	regexp.MustCompile(`\s*\(@[\w-]+(?:\s*,\s*@[\w-]+)*\)`),
+	// Bare PR/issue/commit refs at end of line: ` [#1234](url)`
+	regexp.MustCompile(`\s+\[#\d+\]\(https?://[^)]+/(?:pull|issues|commit|compare)/[^)]+\)\s*$`),
 }
 
-var changelogHeadingPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)^(changelog|change log|release notes|releases|history|version history|what's new|whats new)$`),
+// Date-suffix strippers that run only on version-heading lines. These remove
+// trailing "- 2025-01-15", "(Oct 2, 2025)", "(October 1st, 2025)" etc., while
+// preserving the version number itself.
+var changelogVersionDateStrippers = []*regexp.Regexp{
+	// "## 1.2.3 (October 1st, 2025)" / "## 1.2.3 (Oct 2, 2025)"
+	regexp.MustCompile(`\s*\(\s*(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[^)]*\d{4}\s*\)\s*$`),
+	// "## 1.2.3 - 2025-01-15" or "## [1.2.3] - 2025-01-15"
+	regexp.MustCompile(`\s*[-–—]\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}\s*$`),
+	// "## 1.2.3 (2025-01-15)"
+	regexp.MustCompile(`\s*\(\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}\s*\)\s*$`),
 }
 
-var changelogBulletPrefix = regexp.MustCompile(`^\s*[-*+]\s+`)
+// changelogVersionHeadingPattern matches "## 1.2.3", "## v1.2.3", "## [1.2.3]",
+// "## Unreleased", etc. — version heading lines where the date stripper runs.
+var changelogVersionHeadingPattern = regexp.MustCompile(`(?i)^#+\s*(\[?v?\d+\.\d+|unreleased|upcoming|next)\b`)
+
+// changelogStandaloneDateLine matches a bare date line like "October 20, 2025"
+// often emitted under a version heading.
+var changelogStandaloneDateLine = regexp.MustCompile(`^(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}\s*$`)
 
 func (r *ChangelogCompress) Apply(ctx *Context) (ChangeSet, error) {
+	if !looksLikeChangelogFile(ctx) {
+		return ChangeSet{}, nil
+	}
+
 	lines := sourceLines(ctx.Source)
+	var changes ChangeSet
 
-	isChangelogFile := ctx.FilePath != "" && strings.Contains(strings.ToLower(ctx.FilePath), "changelog")
-	isReleaseNoteFile := ctx.FilePath != "" && strings.Contains(strings.ToLower(ctx.FilePath), "release")
-
-	var sections []changelogSection
-	inChangelog := isChangelogFile || isReleaseNoteFile
-
-	for i := 0; i < len(lines); i++ {
-		trimmed := strings.TrimSpace(lines[i].Text)
-		if lines[i].InFence {
+	for _, line := range lines {
+		if line.InFence {
 			continue
 		}
-		if heading, _, ok := detectHeading(trimmed); ok {
-			if !inChangelog {
-				for _, pattern := range changelogHeadingPatterns {
-					if pattern.MatchString(heading) {
-						inChangelog = true
-						break
-					}
+		text := line.Text
+		trimmed := strings.TrimSpace(text)
+		if trimmed == "" {
+			continue
+		}
+
+		// Strip trailing date suffix on version-heading lines.
+		if changelogVersionHeadingPattern.MatchString(trimmed) {
+			for _, pat := range changelogVersionDateStrippers {
+				if loc := pat.FindStringIndex(text); loc != nil {
+					addRange(&changes, render.Range{
+						Start: line.Start + loc[0],
+						End:   line.Start + loc[1],
+					})
+					break
 				}
 			}
-			if isVersionHeading(trimmed) {
-				sections = append(sections, changelogSection{
-					headingLine: i,
-					level:       headingLevel(trimmed),
+			continue
+		}
+
+		// Drop standalone date lines like "October 20, 2025".
+		if changelogStandaloneDateLine.MatchString(trimmed) {
+			addRange(&changes, render.Range{
+				Start: line.Start,
+				End:   line.End,
+			})
+			continue
+		}
+
+		// Strip tracking-ID parens from any other line.
+		for _, pat := range changelogStripPatterns {
+			for _, loc := range pat.FindAllStringIndex(text, -1) {
+				addRange(&changes, render.Range{
+					Start: line.Start + loc[0],
+					End:   line.Start + loc[1],
 				})
 			}
 		}
 	}
 
-	if len(sections) == 0 {
-		return ChangeSet{}, nil
-	}
-
-	var changes ChangeSet
-	for idx, sectionInfo := range sections {
-		bodyStart := sections[idx].headingLine + 1
-		bodyEnd := len(lines)
-		if idx+1 < len(sections) {
-			bodyEnd = sections[idx+1].headingLine
-		}
-
-		summary := compactChangelogBody(lines[bodyStart:bodyEnd])
-		if summary == "" || summary == "no changes" {
-			continue
-		}
-
-		if bodyStart < bodyEnd {
-			replacement := summary + "\n"
-			addReplacement(&changes,
-				lines[bodyStart].Start,
-				lines[bodyEnd-1].End,
-				replacement)
-		}
-
-		_ = sectionInfo
-	}
-
 	return changes, nil
 }
 
-func compactChangelogBody(lines []sourceLine) string {
-	var bullets []string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line.Text)
-		if trimmed == "" || line.InFence {
+func looksLikeChangelogFile(ctx *Context) bool {
+	if ctx.FilePath != "" && changelogPathPattern.MatchString(ctx.FilePath) {
+		return true
+	}
+	// Fallback: first heading in the file matches a changelog-section name.
+	lines := sourceLines(ctx.Source)
+	for i, line := range lines {
+		if i > 20 || line.InFence {
 			continue
 		}
-		if strings.HasPrefix(trimmed, "#") {
-			break
+		trimmed := strings.TrimSpace(line.Text)
+		if trimmed == "" {
+			continue
 		}
-		if matches := changelogBulletPrefix.FindString(trimmed); matches != "" {
-			content := strings.TrimSpace(trimmed[len(matches):])
-			if content == "" {
-				continue
-			}
-			content = strings.Map(func(r rune) rune {
-				if r == '\n' {
-					return ' '
-				}
-				return r
-			}, content)
-			content = strings.TrimSpace(content)
-			if wordCount(content) >= 1 {
-				bullets = append(bullets, content)
-			}
-		}
-	}
-
-	if len(bullets) == 0 {
-		return "no changes"
-	}
-
-	out := make([]string, 0)
-	for i, b := range bullets {
-		if len(out) >= 5 {
-			out = append(out, "...")
-			break
-		}
-		if len(b) > 100 {
-			b = b[:97] + "..."
-		}
-		out = append(out, b)
-		_ = i
-	}
-	return strings.Join(out, "; ")
-}
-
-func isVersionHeading(trimmed string) bool {
-	for _, pattern := range changelogVersionPatterns {
-		if pattern.MatchString(trimmed) {
+		if changelogTopHeadingPattern.MatchString(trimmed) {
 			return true
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			// First heading wasn't a changelog heading; not a changelog file.
+			return false
 		}
 	}
 	return false
-}
-
-func headingLevel(trimmed string) int {
-	level := 0
-	for level < len(trimmed) && trimmed[level] == '#' {
-		level++
-	}
-	return level
-}
-
-type changelogSection struct {
-	headingLine int
-	level       int
 }

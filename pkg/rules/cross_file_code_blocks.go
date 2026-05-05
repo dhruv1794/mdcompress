@@ -7,6 +7,16 @@ import (
 	"strings"
 )
 
+// crossFileMinCodeBytes is the minimum normalized-content length before a code
+// block is even considered for cross-file dedup. Below this, the "[same as
+// X:N]" marker is usually larger than the block itself.
+const crossFileMinCodeBytes = 20
+
+// crossFileStructuralMinBytes raises the bar for *structural* (token-shape)
+// dedup: a structurally-similar block has a higher false-positive risk than an
+// exact match, so we want more content before we trust the signal.
+const crossFileStructuralMinBytes = 80
+
 type CrossFileCodeBlocks struct{}
 
 func (r *CrossFileCodeBlocks) Name() string { return "dedup-cross-file-code-blocks" }
@@ -30,7 +40,7 @@ func (r *CrossFileCodeBlocks) Apply(ctx *Context) (ChangeSet, error) {
 		}
 		lang := fenceLanguage(lines[block.StartLine].Text)
 		normalized := normalizeCrossFileCode(extractTexts(block.Content), lang)
-		if len(normalized) < 20 {
+		if len(normalized) < crossFileMinCodeBytes {
 			continue
 		}
 
@@ -40,7 +50,7 @@ func (r *CrossFileCodeBlocks) Apply(ctx *Context) (ChangeSet, error) {
 		hash := crossFileCodeHash(lang, normalized)
 		canonical, firstForFile := ctx.CrossFile.RecordCodeBlock(hash, ctx.FilePath, block.StartLine+1, contentLength)
 		if firstForFile {
-			if len(normalized) < 80 {
+			if len(normalized) < crossFileStructuralMinBytes {
 				continue
 			}
 			structHash := structuralHash("code:"+lang, structuralNormalizeCode(normalized, lang))

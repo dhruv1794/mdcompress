@@ -38,6 +38,10 @@ type Entry struct {
 	RulesFired      map[string]int   `json:"rules_fired"`
 	RuleDurationsMS map[string]int64 `json:"rule_durations_ms,omitempty"`
 	RuleBytesSaved  map[string]int   `json:"rule_bytes_saved,omitempty"`
+	// RuleErrors records rules that failed for this file. Compression
+	// continues without that rule's edits; this lets later runs report
+	// silent failures.
+	RuleErrors map[string]string `json:"rule_errors,omitempty"`
 }
 
 func New() *Manifest {

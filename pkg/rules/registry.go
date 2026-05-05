@@ -1,7 +1,19 @@
 package rules
 
+// allRules is the fixed execution order for compression rules. Order is not
+// arbitrary — several rules depend on prior cleanup having run. The hard
+// invariants are asserted by TestRegistryOrderInvariants; the high-level
+// constraints are:
+//
+//   - Frontmatter must run before any rule that scans for "---" or HTML
+//     wrappers, otherwise YAML metadata leaks into downstream regex.
+//   - Code-block compression must run before code-block dedup so the dedup
+//     hash is taken on cleaned content.
+//   - BlankLines runs last as the cleanup pass that collapses gaps left by
+//     earlier rules.
 var allRules = []Rule{
 	&Frontmatter{},
+	&URLTracking{},
 	&SetextHeaders{},
 	&HTMLComments{},
 	&CodeBlocks{},

@@ -4,66 +4,77 @@ import (
 	"bytes"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/text"
 )
 
-// HTMLComments removes standalone HTML comments from markdown source.
+// HTMLComments removes HTML comments from markdown source.
+//
+// The rule operates on raw bytes (not the AST): it scans for "<!-- ... -->"
+// pairs that fall outside fenced code blocks. Comments that span multiple
+// lines are removed in full; an unterminated "<!--" is left alone.
 type HTMLComments struct{}
 
 func (r *HTMLComments) Name() string { return "strip-html-comments" }
 func (r *HTMLComments) Tier() Tier   { return TierSafe }
 
-func (r *HTMLComments) ApplyAST(doc ast.Node, ctx *Context) (ChangeSet, error) {
+func (r *HTMLComments) Apply(ctx *Context) (ChangeSet, error) {
 	var changes ChangeSet
+	source := ctx.Source
+	lines := sourceLines(source)
 
-	err := ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
-		if !entering {
-			return ast.WalkContinue, nil
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if line.InFence {
+			continue
 		}
-
-		switch n := node.(type) {
-		case *ast.HTMLBlock:
-			if commentRange, ok := htmlBlockCommentRange(n, ctx.Source); ok {
-				addCommentRemoval(ctx.Source, commentRange, &changes)
+		text := source[line.Start:line.End]
+		searchOffset := line.Start
+		searchSlice := text
+		for {
+			rel := bytes.Index(searchSlice, []byte("<!--"))
+			if rel < 0 {
+				break
 			}
-		case *ast.RawHTML:
-			for i := 0; i < n.Segments.Len(); i++ {
-				segment := n.Segments.At(i)
-				if isHTMLComment(segment.Value(ctx.Source)) {
-					addCommentRemoval(ctx.Source, segmentRange(segment), &changes)
+			startAbs := searchOffset + rel
+			closeAbs, closeLine := findCommentClose(lines, source, i, startAbs+4)
+			if closeAbs < 0 {
+				// Unterminated comment — leave the rest of this line alone.
+				break
+			}
+			endAbs := closeAbs + 3
+			addCommentRemoval(source, render.Range{Start: startAbs, End: endAbs}, &changes)
+			if closeLine == i {
+				// Continue scanning the rest of the same line for more comments.
+				rest := endAbs - line.Start
+				searchOffset = line.Start + rest
+				if rest >= len(text) {
+					break
 				}
+				searchSlice = text[rest:]
+				continue
 			}
+			// Multi-line comment — skip past the closing line.
+			i = closeLine
+			break
 		}
-		return ast.WalkContinue, nil
-	})
-	return changes, err
+	}
+	return changes, nil
 }
 
-func htmlBlockCommentRange(node *ast.HTMLBlock, source []byte) (render.Range, bool) {
-	lines := node.Lines()
-	if lines.Len() == 0 {
-		return render.Range{}, false
+// findCommentClose locates the next "-->" starting at byte offset start within
+// or after lines[startLine]. Returns (-1, -1) if there's no close before EOF.
+func findCommentClose(lines []sourceLine, source []byte, startLine, start int) (int, int) {
+	for j := startLine; j < len(lines); j++ {
+		l := lines[j]
+		if l.End <= start {
+			continue
+		}
+		searchFrom := max(start, l.Start)
+		rel := bytes.Index(source[searchFrom:l.End], []byte("-->"))
+		if rel >= 0 {
+			return searchFrom + rel, j
+		}
 	}
-
-	start := lines.At(0).Start
-	end := lines.At(lines.Len() - 1).Stop
-	if start < 0 || end < start || end > len(source) {
-		return render.Range{}, false
-	}
-	if !isHTMLComment(source[start:end]) {
-		return render.Range{}, false
-	}
-	return render.Range{Start: start, End: end}, true
-}
-
-func segmentRange(segment text.Segment) render.Range {
-	return render.Range{Start: segment.Start, End: segment.Stop}
-}
-
-func isHTMLComment(content []byte) bool {
-	trimmed := bytes.TrimSpace(content)
-	return bytes.HasPrefix(trimmed, []byte("<!--")) && bytes.HasSuffix(trimmed, []byte("-->"))
+	return -1, -1
 }
 
 func addCommentRemoval(source []byte, commentRange render.Range, changes *ChangeSet) {
