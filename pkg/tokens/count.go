@@ -111,6 +111,28 @@ func Count(content []byte) int {
 	return CountWith(content, DefaultTokenizer())
 }
 
+// Counter is the injection seam for token measurement. The default
+// implementation wraps the process-wide tokenizer; tests and rule profilers
+// can substitute fakes (e.g., constant-cost stubs) without touching the
+// global encoder cache.
+type Counter interface {
+	Count(content []byte) int
+	Name() string
+}
+
+type tokenizerCounter struct{ t Tokenizer }
+
+func (c tokenizerCounter) Count(content []byte) int { return CountWith(content, c.t) }
+func (c tokenizerCounter) Name() string             { return c.t.Name() }
+
+// NewCounter returns a Counter backed by the given tokenizer kind.
+func NewCounter(t Tokenizer) Counter { return tokenizerCounter{t: t} }
+
+// DefaultCounter returns a Counter backed by the process-wide default
+// tokenizer. The returned value captures the current default; subsequent
+// SetDefault calls do not affect existing counters.
+func DefaultCounter() Counter { return NewCounter(DefaultTokenizer()) }
+
 // CountWith returns a token count using the explicitly-provided tokenizer.
 func CountWith(content []byte, t Tokenizer) int {
 	if t == Bytes {

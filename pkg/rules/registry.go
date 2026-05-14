@@ -13,6 +13,7 @@ package rules
 //     earlier rules.
 var allRules = []Rule{
 	&Frontmatter{},
+	&NormalizeUnicode{},
 	&URLTracking{},
 	&SetextHeaders{},
 	&HTMLComments{},
@@ -25,10 +26,11 @@ var allRules = []Rule{
 	&TOC{},
 	&TrailingCTA{},
 	&CrossFileDupes{},
+	&CrossFileParagraphs{},
 	&CrossFileCodeBlocks{},
 	&CodeBlockTruncate{},
 	&MultilangDedup{},
-	&MarketingProse{},
+	&FactorPhraseDictionary{},
 	&HedgingPhrases{},
 	&DedupCrossSection{},
 	&BenchmarkProse{},
@@ -47,8 +49,16 @@ var allRules = []Rule{
 }
 
 // DefaultDisabled reports whether a rule is opt-in even when its tier is active.
+// DefaultDisabled rules are opt-in even when their tier is active. Reasons:
+//   - collapse-example-output, strip-boilerplate-sections: aggressive content
+//     removal that's safe only on specific doc types
+//   - dedup-cross-section: complex heuristic that historically caused an OOM
+//     regression (now fixed) and only saves ~450 bytes corpus-wide; kept for
+//     opt-in experimentation but not worth the risk surface by default
 func DefaultDisabled(name string) bool {
-	return name == "collapse-example-output" || name == "strip-boilerplate-sections"
+	return name == "collapse-example-output" ||
+		name == "strip-boilerplate-sections" ||
+		name == "dedup-cross-section"
 }
 
 // AllRules returns every rule in fixed execution order.

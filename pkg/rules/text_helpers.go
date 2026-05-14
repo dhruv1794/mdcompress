@@ -90,7 +90,12 @@ func addRange(changes *ChangeSet, removal render.Range) {
 }
 
 func addReplacement(changes *ChangeSet, start, end int, replacement string) {
-	if start >= end {
+	if start > end {
+		return
+	}
+	// A pure insert (start==end) is allowed when there's something to insert.
+	// A pure no-op (start==end, empty replacement) is silently dropped.
+	if start == end && replacement == "" {
 		return
 	}
 	changes.Edits = append(changes.Edits, render.Edit{
@@ -106,6 +111,28 @@ func wordCount(text string) int {
 	return len(strings.FieldsFunc(text, func(value rune) bool {
 		return !(unicode.IsLetter(value) || unicode.IsDigit(value))
 	}))
+}
+
+// markdownHeadingText returns the text of a markdown ATX heading line, or
+// false if the line is not a heading (handles `#` through `######`).
+func markdownHeadingText(trimmed string) (string, bool) {
+	if !strings.HasPrefix(trimmed, "#") {
+		return "", false
+	}
+	level := 0
+	for level < len(trimmed) && trimmed[level] == '#' {
+		level++
+	}
+	if level == 0 || level > 6 || level >= len(trimmed) || trimmed[level] != ' ' {
+		return "", false
+	}
+	return strings.TrimSpace(trimmed[level+1:]), true
+}
+
+// insideInlineCode reports whether `offset` falls inside an inline-code span
+// (between backticks) on the same line.
+func insideInlineCode(text string, offset int) bool {
+	return strings.Count(text[:offset], "`")%2 == 1
 }
 
 func singleRune(text string) bool {

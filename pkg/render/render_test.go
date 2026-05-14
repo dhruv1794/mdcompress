@@ -76,6 +76,62 @@ func TestApplyEditsReplacesRange(t *testing.T) {
 	}
 }
 
+func TestApplyEditsAdjacentReplacements(t *testing.T) {
+	// Two replacements sharing a boundary (one starts where the other ends)
+	// must both apply. The previous `<=` overlap check silently dropped the
+	// second.
+	src := []byte("AAAABBBB")
+	got := render.ApplyEdits(src, []render.Edit{
+		{Start: 0, End: 4, Replacement: []byte("xx")},
+		{Start: 4, End: 8, Replacement: []byte("yy")},
+	})
+	want := []byte("xxyy")
+	if !bytes.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestApplyEditsPureInsert(t *testing.T) {
+	// A pure-insert edit (Start==End, non-empty Replacement) inserts before
+	// the byte at Start without consuming any source.
+	src := []byte("hello world")
+	got := render.ApplyEdits(src, []render.Edit{
+		{Start: 6, End: 6, Replacement: []byte("brave ")},
+	})
+	want := []byte("hello brave world")
+	if !bytes.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestApplyEditsInsertBeforeReplacementAtSameOffset(t *testing.T) {
+	// A pure insert at offset X and a replacement [X, Y) both apply; the
+	// insert text lands before the replacement output.
+	src := []byte("ABCDE")
+	got := render.ApplyEdits(src, []render.Edit{
+		{Start: 0, End: 0, Replacement: []byte("[")},
+		{Start: 0, End: 3, Replacement: []byte("xxx")},
+	})
+	want := []byte("[xxxDE")
+	if !bytes.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestApplyEditsMergesAdjacentDeletions(t *testing.T) {
+	// Adjacent pure deletions should still produce the same end result as
+	// merging them — both forms drop the byte range [0, 8).
+	src := []byte("AAAABBBBC")
+	got := render.ApplyEdits(src, []render.Edit{
+		{Start: 0, End: 4},
+		{Start: 4, End: 8},
+	})
+	want := []byte("C")
+	if !bytes.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 // TestRoundtripCorpus exercises the parser on real documents and asserts
 // that splicing with no ranges returns the source byte-for-byte.
 func TestRoundtripCorpus(t *testing.T) {

@@ -18,6 +18,7 @@ func runCommand() *cobra.Command {
 	var enabledRules []string
 	var disabledRules []string
 	var tier string
+	var treeGlossary bool
 
 	cmd := &cobra.Command{
 		Use:   "run [path...]",
@@ -29,13 +30,14 @@ func runCommand() *cobra.Command {
 				return err
 			}
 			summary, err := runMarkdown(runOptions{
-				Args:         args,
-				All:          all,
-				Staged:       staged,
-				Changed:      changed,
-				NoStaleCheck: noStaleCheck,
-				Verbose:      verbose,
-				Compress:     compressOpts,
+				Args:          args,
+				All:           all,
+				Staged:        staged,
+				Changed:       changed,
+				NoStaleCheck:  noStaleCheck,
+				Verbose:       verbose,
+				Compress:      compressOpts,
+				TreeGlossary:  treeGlossary,
 			})
 			if err != nil {
 				return err
@@ -57,6 +59,7 @@ func runCommand() *cobra.Command {
 	cmd.Flags().StringVar(&tier, "tier", "", "compression tier: safe, aggressive, llm (default: config tier or safe)")
 	cmd.Flags().StringSliceVar(&enabledRules, "enable-rule", nil, "opt-in rule to enable; may be repeated")
 	cmd.Flags().StringSliceVar(&disabledRules, "disable-rule", nil, "rule to disable; may be repeated")
+	cmd.Flags().BoolVar(&treeGlossary, "tree-glossary", false, "two-pass: mine a corpus-wide phrase glossary before compressing each file")
 	return cmd
 }
 

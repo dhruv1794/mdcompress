@@ -79,4 +79,9 @@ type Options struct {
 	// LLMRewriter, when non-nil and Tier == TierLLM, runs after the rule
 	// pipeline. A nil rewriter at TierLLM degrades to Tier-2 output.
 	LLMRewriter LLMRewriter
+	// ProfileTokens, when true, makes Compress() count tokens before/after
+	// each rule's edits and populate Result.RuleTokensSaved. The env var
+	// MDCOMPRESS_PROFILE_TOKENS=1 enables this implicitly. Off by default;
+	// per-rule tokenizing is expensive on large files.
+	ProfileTokens bool
 }

@@ -23,6 +23,7 @@ type runOptions struct {
 	NoStaleCheck bool
 	Verbose      bool
 	Compress     compress.Options
+	TreeGlossary bool
 }
 
 type runSummary struct {
@@ -48,6 +49,29 @@ func runMarkdown(opts runOptions) (runSummary, error) {
 	}
 
 	crossFile := &rules.CrossFileState{}
+
+	if opts.TreeGlossary && len(inputs) > 1 {
+		// Pass 1: mine corpus-wide phrase occurrences without writing edits.
+		crossFile.PhraseMineMode = true
+		mineOpts := opts.Compress
+		mineOpts.CrossFile = crossFile
+		for _, input := range inputs {
+			mineOpts.FilePath = input.Rel
+			if _, err := compress.Compress(input.Content, mineOpts); err != nil {
+				return runSummary{}, err
+			}
+		}
+		// Anchor on the lexicographically first path so the choice is stable
+		// regardless of input order.
+		anchor := inputs[0].Rel
+		for _, in := range inputs[1:] {
+			if in.Rel < anchor {
+				anchor = in.Rel
+			}
+		}
+		crossFile.PhraseMineMode = false
+		crossFile.BuildPhraseGlossary(5, 64, anchor)
+	}
 
 	var summary runSummary
 	for _, input := range inputs {

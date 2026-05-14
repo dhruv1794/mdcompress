@@ -74,30 +74,6 @@ func TestCompressSafeTierRules(t *testing.T) {
 	}
 }
 
-func TestCompressAggressiveTierStripsMarketingProse(t *testing.T) {
-	input := []byte("# Project\n\nA production-ready Go library for markdown.\n\n## Usage\n\nRun it.\n")
-
-	safe, err := compress.Compress(input, compress.Options{Tier: compress.TierSafe})
-	if err != nil {
-		t.Fatalf("safe Compress() error = %v", err)
-	}
-	if !bytes.Equal(safe.Output, input) {
-		t.Fatalf("safe output = %q, want %q", safe.Output, input)
-	}
-
-	aggressive, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
-	if err != nil {
-		t.Fatalf("aggressive Compress() error = %v", err)
-	}
-	want := []byte("# Project\n\nA Go library for markdown.\n\n## Usage\n\nRun it.\n")
-	if !bytes.Equal(aggressive.Output, want) {
-		t.Fatalf("aggressive output = %q, want %q", aggressive.Output, want)
-	}
-	if aggressive.RulesFired["strip-marketing-prose"] != 1 {
-		t.Fatalf("strip-marketing-prose fired %d times", aggressive.RulesFired["strip-marketing-prose"])
-	}
-}
-
 func TestCompressAggressiveTierStripsHedgingPhrases(t *testing.T) {
 	input := []byte("# Project\n\nPlease note that users run mdcompress in order to refresh docs.\n")
 
@@ -148,6 +124,9 @@ func TestCompressAggressiveTierStripsBenchmarkProse(t *testing.T) {
 }
 
 func TestCompressAggressiveTierDedupsCrossSectionClaim(t *testing.T) {
+	// dedup-cross-section is default-disabled (saves ~450 bytes corpus-wide
+	// and historically caused an OOM); the rule still works when explicitly
+	// enabled, which is what this test exercises.
 	input := []byte("# Project\n\nProject stores cache files under `.project/cache`.\n\n## Cache\n\nProject stores cache files under `.project/cache` so repeated runs can reuse compressed mirrors across commands.\n")
 
 	safe, err := compress.Compress(input, compress.Options{Tier: compress.TierSafe})
@@ -158,7 +137,18 @@ func TestCompressAggressiveTierDedupsCrossSectionClaim(t *testing.T) {
 		t.Fatalf("safe output = %q, want %q", safe.Output, input)
 	}
 
-	aggressive, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
+	defaultAggressive, err := compress.Compress(input, compress.Options{Tier: compress.TierAggressive})
+	if err != nil {
+		t.Fatalf("aggressive Compress() error = %v", err)
+	}
+	if defaultAggressive.RulesFired["dedup-cross-section"] != 0 {
+		t.Fatalf("dedup-cross-section should be default-disabled, fired %d times", defaultAggressive.RulesFired["dedup-cross-section"])
+	}
+
+	aggressive, err := compress.Compress(input, compress.Options{
+		Tier:         compress.TierAggressive,
+		EnabledRules: []string{"dedup-cross-section"},
+	})
 	if err != nil {
 		t.Fatalf("aggressive Compress() error = %v", err)
 	}

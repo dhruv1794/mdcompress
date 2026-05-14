@@ -2,12 +2,17 @@
 package compress
 
 import (
+	"os"
 	"time"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
 	"github.com/dhruv1794/mdcompress/pkg/rules"
 	"github.com/dhruv1794/mdcompress/pkg/tokens"
 )
+
+// profileTokensEnv enables per-rule token measurement when set to "1" or
+// "true". Costly on large corpora, so default-off.
+const profileTokensEnv = "MDCOMPRESS_PROFILE_TOKENS"
 
 // Compress runs the configured rule tier against markdown content.
 // Built-in rules run first (byte-range edits), then discovered plugins
@@ -25,11 +30,21 @@ func Compress(content []byte, opts Options) (Result, error) {
 		}
 	}
 
+	profileTokens := opts.ProfileTokens || profileTokensEnabled()
+	var counter tokens.Counter
+	if profileTokens {
+		counter = tokens.DefaultCounter()
+	}
+
 	output := content
 	rulesFired := make(map[string]int)
 	ruleDurations := make(map[string]int64)
 	ruleBytes := make(map[string]int)
 	ruleErrors := make(map[string]string)
+	var ruleTokens map[string]int
+	if profileTokens {
+		ruleTokens = make(map[string]int)
+	}
 	disabled := disabledRuleSet(opts.DisabledRules)
 	enabled := enabledRuleSet(opts.EnabledRules)
 	for _, rule := range rules.RulesForTier(rules.Tier(tier)) {
@@ -64,9 +79,19 @@ func Compress(content []byte, opts Options) (Result, error) {
 			rulesFired[rule.Name()] = changeSet.Stats.NodesAffected
 		}
 		before := len(output)
+		var tokensBefore int
+		if profileTokens {
+			tokensBefore = counter.Count(output)
+		}
 		output = render.ApplyEdits(output, changeSet.Edits)
 		if delta := before - len(output); delta != 0 {
 			ruleBytes[rule.Name()] += delta
+		}
+		if profileTokens {
+			tokensAfter := counter.Count(output)
+			if delta := tokensBefore - tokensAfter; delta != 0 {
+				ruleTokens[rule.Name()] += delta
+			}
 		}
 	}
 
@@ -87,9 +112,19 @@ func Compress(content []byte, opts Options) (Result, error) {
 			rulesFired[name] = stats.NodesAffected
 		}
 		before := len(output)
+		var tokensBefore int
+		if profileTokens {
+			tokensBefore = counter.Count(output)
+		}
 		output = transformed
 		if delta := before - len(output); delta != 0 {
 			ruleBytes[name] += delta
+		}
+		if profileTokens {
+			tokensAfter := counter.Count(output)
+			if delta := tokensBefore - tokensAfter; delta != 0 {
+				ruleTokens[name] += delta
+			}
 		}
 	}
 
@@ -113,9 +148,18 @@ func Compress(content []byte, opts Options) (Result, error) {
 		RulesFired:      rulesFired,
 		RuleDurationsMS: ruleDurations,
 		RuleBytesSaved:  ruleBytes,
+		RuleTokensSaved: ruleTokens,
 		RuleErrors:      ruleErrors,
 		LLM:             llmStats,
 	}, nil
+}
+
+func profileTokensEnabled() bool {
+	switch os.Getenv(profileTokensEnv) {
+	case "1", "true", "TRUE", "True", "yes":
+		return true
+	}
+	return false
 }
 
 func disabledRuleSet(names []string) map[string]bool {

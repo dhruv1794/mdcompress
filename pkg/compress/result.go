@@ -13,6 +13,10 @@ type Result struct {
 	// canonical signal for cost-vs-savings analysis.
 	RuleDurationsMS map[string]int64
 	RuleBytesSaved  map[string]int
+	// RuleTokensSaved is populated only when MDCOMPRESS_PROFILE_TOKENS=1 is
+	// set in the environment (or compress.Options.ProfileTokens=true). The
+	// fast path leaves it nil to avoid the per-rule tokenizer cost.
+	RuleTokensSaved map[string]int
 	// RuleErrors records rules and plugins that returned an error during
 	// compression. The compression continues without that rule's edits, but
 	// callers can surface the failure (verbose run, doctor, MCP).

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -85,7 +86,8 @@ func (b *DeepSeekBackend) Complete(prompt string) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("deepseek returned %s", resp.Status)
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("deepseek returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 
 	var out struct {
