@@ -32,6 +32,7 @@ func main() {
 	root.AddCommand(runCommand())
 	root.AddCommand(statusCommand())
 	root.AddCommand(evalCommand())
+	root.AddCommand(profileCommand())
 	root.AddCommand(doctorCommand())
 	root.AddCommand(cleanCommand())
 	root.AddCommand(initCommand())

@@ -62,12 +62,29 @@ func ApplyEdits(source []byte, edits []Edit) []byte {
 		return source
 	}
 
-	sort.Slice(clean, func(i, j int) bool { return clean[i].Start < clean[j].Start })
+	// Sort by Start; for ties, pure inserts (Start==End) come before edits
+	// that consume bytes at the same offset, so an insert at X and a
+	// replacement at [X, Y) both apply with the insert text landing before
+	// the replaced bytes.
+	sort.SliceStable(clean, func(i, j int) bool {
+		if clean[i].Start != clean[j].Start {
+			return clean[i].Start < clean[j].Start
+		}
+		iInsert := clean[i].Start == clean[i].End
+		jInsert := clean[j].Start == clean[j].End
+		if iInsert != jInsert {
+			return iInsert
+		}
+		return false
+	})
 
 	merged := clean[:1]
 	for _, edit := range clean[1:] {
 		last := &merged[len(merged)-1]
-		if edit.Start <= last.End {
+		// True overlap: edit consumes bytes already claimed by a prior edit.
+		// Adjacent edits (edit.Start == last.End) are NOT an overlap and must
+		// each apply — the previous `<=` check silently dropped the second.
+		if edit.Start < last.End {
 			if len(last.Replacement) == 0 && len(edit.Replacement) == 0 {
 				if edit.End > last.End {
 					last.End = edit.End

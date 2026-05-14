@@ -2,6 +2,7 @@
 package rules
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/dhruv1794/mdcompress/pkg/render"
@@ -39,6 +40,27 @@ type CrossFileState struct {
 	StructuralSections   map[string]CrossFileSection
 	CodeBlocks           map[string]CrossFileCodeBlock
 	StructuralCodeBlocks map[string]CrossFileCodeBlock
+	SeenParagraphs       map[string]CrossFileParagraph
+
+	// Tree-wide phrase dictionary. Populated across two passes:
+	//   pass 1: factor-phrase-dictionary, when PhraseMineMode is true,
+	//           calls RecordPhraseObservation for each candidate phrase
+	//           instead of substituting.
+	//   between passes: caller invokes BuildPhraseGlossary to pick winners.
+	//   pass 2: factor-phrase-dictionary, when PhraseGlossary is non-empty,
+	//           applies the pre-built glossary instead of mining per-file.
+	PhraseMineMode      bool
+	PhraseObservations  map[string]int    // phrase → corpus-wide count
+	PhraseGlossary      map[string]string // phrase → abbreviation ("T1"…)
+	PhraseGlossaryOrder []string          // phrases ordered by selection priority
+	PhraseGlossaryAnchor string           // file that receives the [gloss] preamble
+}
+
+type CrossFileParagraph struct {
+	CanonicalFile string
+	ContentHash   string
+	ByteLength    int
+	Count         int
 }
 
 type CrossFileSection struct {
@@ -139,6 +161,122 @@ func (cfs *CrossFileState) RecordCodeBlock(hash, file string, startLine, length 
 	}
 	cfs.CodeBlocks[hash] = block
 	return block, true
+}
+
+// RecordParagraph counts occurrences of a normalized-paragraph hash across
+// files. Returns the canonical entry (the first file that recorded the
+// paragraph) and the post-call count. Callers replace the paragraph with a
+// reference once count >= 3 — until then we don't yet know whether the
+// paragraph repeats enough to be worth factoring.
+func (cfs *CrossFileState) RecordParagraph(hash, file string, length int) (CrossFileParagraph, int) {
+	if cfs == nil {
+		return CrossFileParagraph{}, 0
+	}
+	cfs.mu.Lock()
+	defer cfs.mu.Unlock()
+	if cfs.SeenParagraphs == nil {
+		cfs.SeenParagraphs = make(map[string]CrossFileParagraph)
+	}
+	if existing, ok := cfs.SeenParagraphs[hash]; ok {
+		existing.Count++
+		cfs.SeenParagraphs[hash] = existing
+		return existing, existing.Count
+	}
+	p := CrossFileParagraph{
+		CanonicalFile: file,
+		ContentHash:   hash,
+		ByteLength:    length,
+		Count:         1,
+	}
+	cfs.SeenParagraphs[hash] = p
+	return p, 1
+}
+
+// RecordPhraseObservation increments the corpus-wide occurrence count of
+// the given phrase. Used during pass 1 of the tree-wide phrase dictionary
+// build.
+func (cfs *CrossFileState) RecordPhraseObservation(phrase string) {
+	if cfs == nil || phrase == "" {
+		return
+	}
+	cfs.mu.Lock()
+	defer cfs.mu.Unlock()
+	if cfs.PhraseObservations == nil {
+		cfs.PhraseObservations = make(map[string]int)
+	}
+	cfs.PhraseObservations[phrase]++
+}
+
+// BuildPhraseGlossary picks the highest-value phrases from the corpus-wide
+// observations and assigns abbreviations T1..Tn. Greedy by gross byte
+// savings, capped at maxAbbrevs and gated on minOccurs. Returns the
+// number of abbreviations assigned. Anchor is the file path that will
+// receive the glossary preamble during pass 2.
+func (cfs *CrossFileState) BuildPhraseGlossary(minOccurs, maxAbbrevs int, anchor string) int {
+	if cfs == nil {
+		return 0
+	}
+	cfs.mu.Lock()
+	defer cfs.mu.Unlock()
+	if len(cfs.PhraseObservations) == 0 {
+		return 0
+	}
+	type cand struct {
+		text  string
+		count int
+		gross int
+	}
+	cands := make([]cand, 0, len(cfs.PhraseObservations))
+	for text, count := range cfs.PhraseObservations {
+		if count < minOccurs {
+			continue
+		}
+		// Approximate savings: each occurrence saves (len(text)-2) when
+		// replaced with a 2-byte abbreviation. We refine in selection below
+		// using actual abbreviation length and net-savings math.
+		cands = append(cands, cand{text: text, count: count, gross: count * (len(text) - 2)})
+	}
+	if len(cands) == 0 {
+		return 0
+	}
+	// Stable sort: gross savings desc, then text asc.
+	for i := 1; i < len(cands); i++ {
+		for j := i; j > 0 && lessCand(cands[j], cands[j-1]); j-- {
+			cands[j], cands[j-1] = cands[j-1], cands[j]
+		}
+	}
+	cfs.PhraseGlossary = make(map[string]string, maxAbbrevs)
+	cfs.PhraseGlossaryOrder = make([]string, 0, maxAbbrevs)
+	cfs.PhraseGlossaryAnchor = anchor
+	for _, c := range cands {
+		if len(cfs.PhraseGlossary) >= maxAbbrevs {
+			break
+		}
+		idx := len(cfs.PhraseGlossary) + 1
+		abbrev := fmt.Sprintf("T%d", idx)
+		perOccSave := len(c.text) - len(abbrev)
+		entryCost := len(abbrev) + 1 + len(c.text) + 2 // "T1=phrase; "
+		net := c.count*perOccSave - entryCost
+		if net <= 0 {
+			continue
+		}
+		cfs.PhraseGlossary[c.text] = abbrev
+		cfs.PhraseGlossaryOrder = append(cfs.PhraseGlossaryOrder, c.text)
+	}
+	return len(cfs.PhraseGlossary)
+}
+
+// lessCand orders candidates: higher gross savings first, then alphabetical
+// for determinism.
+func lessCand(a, b struct {
+	text  string
+	count int
+	gross int
+}) bool {
+	if a.gross != b.gross {
+		return a.gross > b.gross
+	}
+	return a.text < b.text
 }
 
 func (cfs *CrossFileSection) ReferenceFile() string {

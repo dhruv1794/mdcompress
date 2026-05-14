@@ -27,6 +27,15 @@ func evalCommand() *cobra.Command {
 	var seeds int
 	var jsonOut string
 	var markdownOut string
+	var corpusPath string
+	var corpusRepoRoot string
+	var corpusFilter string
+	var corpusJudgeModel string
+	var corpusNoCache bool
+	var corpusCacheDir string
+	var corpusPerRule bool
+	var corpusPerRuleOut string
+	var corpusPerRuleJSON string
 
 	cmd := &cobra.Command{
 		Use:   "eval [--repo=<path>] [--rule=<name>]",
@@ -84,6 +93,12 @@ Use --rule to isolate one registered rule by disabling all others for the run.`,
 				return err
 			}
 			model = resolvedEvalModel(backendName, model)
+			if strings.TrimSpace(corpusPath) != "" {
+				if corpusPerRule {
+					return runCuratedCorpusPerRule(cmd, corpusPath, corpusRepoRoot, corpusFilter, corpusJudgeModel, corpusCacheDir, corpusNoCache, parsedTier, backend, corpusPerRuleOut, corpusPerRuleJSON)
+				}
+				return runCuratedCorpus(cmd, corpusPath, corpusRepoRoot, corpusFilter, corpusJudgeModel, corpusCacheDir, corpusNoCache, parsedTier, threshold, backend, jsonOut, markdownOut)
+			}
 			report, err := mdeval.Run(mdeval.Options{
 				Repo:            repo,
 				Rule:            rule,
@@ -131,7 +146,119 @@ Use --rule to isolate one registered rule by disabling all others for the run.`,
 	cmd.Flags().IntVar(&seeds, "seeds", 0, "number of question-generation passes per file")
 	cmd.Flags().StringVar(&jsonOut, "json-out", "", "write JSON report to this path")
 	cmd.Flags().StringVar(&markdownOut, "markdown-out", "", "write markdown report to this path")
+	cmd.Flags().StringVar(&corpusPath, "corpus", "", "curated JSONL corpus of (doc, question, expected_answer) tuples; switches eval into curated mode")
+	cmd.Flags().StringVar(&corpusRepoRoot, "corpus-repo-root", "/tmp/bench", "filesystem root containing the per-repo doc trees referenced from --corpus")
+	cmd.Flags().StringVar(&corpusFilter, "corpus-filter", "", "comma-separated list of tuple ids or repo names to keep")
+	cmd.Flags().StringVar(&corpusJudgeModel, "corpus-judge-model", "", "model name for the judge call (defaults to --model)")
+	cmd.Flags().StringVar(&corpusCacheDir, "corpus-cache-dir", ".mdcompress/cache/eval", "on-disk cache directory for answers + verdicts")
+	cmd.Flags().BoolVar(&corpusNoCache, "corpus-no-cache", false, "disable disk caching for the curated run")
+	cmd.Flags().BoolVar(&corpusPerRule, "per-rule-config", false, "after the baseline curated run, sweep each candidate rule by disabling it and report the per-rule pass-rate delta")
+	cmd.Flags().StringVar(&corpusPerRuleOut, "per-rule-out", "", "write per-rule scoreboard markdown to this path (default: stdout)")
+	cmd.Flags().StringVar(&corpusPerRuleJSON, "per-rule-json", "", "write per-rule scoreboard JSON to this path")
 	return cmd
+}
+
+func runCuratedCorpusPerRule(cmd *cobra.Command, corpusPath, repoRoot, filter, judgeModel, cacheDir string, noCache bool, tier compress.Tier, backend mdeval.Backend, perRuleOut, perRuleJSON string) error {
+	if strings.TrimSpace(judgeModel) == "" {
+		judgeModel = "(same as responder)"
+	}
+	report, err := mdeval.RunCorpusPerRule(mdeval.CorpusOptions{
+		CorpusPath: corpusPath,
+		RepoRoot:   repoRoot,
+		Filter:     filter,
+		Compress:   compress.Options{Tier: tier},
+		Backend:    backend,
+		JudgeModel: judgeModel,
+		CacheDir:   cacheDir,
+		NoCache:    noCache,
+	})
+	if err != nil {
+		return err
+	}
+	if perRuleOut != "" {
+		if err := os.MkdirAll(filepath.Dir(perRuleOut), 0o755); err != nil && filepath.Dir(perRuleOut) != "." {
+			return err
+		}
+		f, err := os.Create(perRuleOut)
+		if err != nil {
+			return err
+		}
+		if err := mdeval.WritePerRuleMarkdown(f, report); err != nil {
+			f.Close()
+			return err
+		}
+		f.Close()
+	}
+	if perRuleJSON != "" {
+		if err := os.MkdirAll(filepath.Dir(perRuleJSON), 0o755); err != nil && filepath.Dir(perRuleJSON) != "." {
+			return err
+		}
+		f, err := os.Create(perRuleJSON)
+		if err != nil {
+			return err
+		}
+		if err := mdeval.WritePerRuleJSON(f, report); err != nil {
+			f.Close()
+			return err
+		}
+		f.Close()
+	}
+	if perRuleOut == "" && perRuleJSON == "" {
+		if err := mdeval.WritePerRuleMarkdown(cmd.OutOrStdout(), report); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runCuratedCorpus(cmd *cobra.Command, corpusPath, repoRoot, filter, judgeModel, cacheDir string, noCache bool, tier compress.Tier, threshold float64, backend mdeval.Backend, jsonOut, markdownOut string) error {
+	if strings.TrimSpace(judgeModel) == "" {
+		judgeModel = "(same as responder)"
+	}
+	report, err := mdeval.RunCorpus(mdeval.CorpusOptions{
+		CorpusPath: corpusPath,
+		RepoRoot:   repoRoot,
+		Filter:     filter,
+		Compress:   compress.Options{Tier: tier},
+		Backend:    backend,
+		JudgeModel: judgeModel,
+		CacheDir:   cacheDir,
+		NoCache:    noCache,
+	})
+	if err != nil {
+		return err
+	}
+	if markdownOut != "" {
+		f, err := os.Create(markdownOut)
+		if err != nil {
+			return err
+		}
+		if err := mdeval.WriteCorpusMarkdown(f, report); err != nil {
+			f.Close()
+			return err
+		}
+		f.Close()
+	}
+	if jsonOut != "" {
+		f, err := os.Create(jsonOut)
+		if err != nil {
+			return err
+		}
+		if err := mdeval.WriteCorpusJSON(f, report); err != nil {
+			f.Close()
+			return err
+		}
+		f.Close()
+	}
+	if jsonOut == "" && markdownOut == "" {
+		if err := mdeval.WriteCorpusMarkdown(cmd.OutOrStdout(), report); err != nil {
+			return err
+		}
+	}
+	if threshold > 0 && report.Totals.PassRate() < threshold {
+		return fmt.Errorf("curated pass rate %.3f is below threshold %.3f", report.Totals.PassRate(), threshold)
+	}
+	return nil
 }
 
 func evalBackend(name, endpoint, model, apiKeyEnv string) (mdeval.Backend, error) {

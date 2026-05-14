@@ -81,7 +81,6 @@ func detectVale(root string) Tool {
 	}
 	t.Suggestions = append(t.Suggestions,
 		"mdcompress strip-hedging-phrases (~ Vale prose lint rules for wordiness)",
-		"mdcompress strip-marketing-prose (~ Vale brand/style rules for superlatives)",
 		"mdcompress is complementary to Vale: Vale enforces style/grammar; mdcompress strips fluff pre-compression.",
 		"Run Vale first for style, then mdcompress for token reduction.",
 	)
