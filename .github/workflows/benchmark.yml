@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
     paths:
+      - 'pkg/**'
+      - 'cmd/**'
+      - 'go.mod'
+      - 'go.sum'
       - 'docs/site/**'
       - 'docs/benchmark-repos.json'
       - '.github/workflows/benchmark.yml'
