@@ -70,21 +70,26 @@ type CorpusTupleResult struct {
 	// expected_answer is wrong. Separate from the pass/degraded/fail axis.
 	Suspect       bool   `json:"suspect"`
 	SuspectReason string `json:"suspect_reason,omitempty"`
+	// LLM holds the Tier-3 rewriter stats for this tuple's compression.
+	// Zero unless the run is tier=llm with a rewriter attached.
+	LLM compress.LLMRewriteStats `json:"llm"`
 }
 
 // CorpusReport aggregates verdicts across the run.
 type CorpusReport struct {
-	GeneratedAt    time.Time              `json:"generated_at"`
-	CorpusPath     string                 `json:"corpus_path"`
-	Backend        string                 `json:"backend"`
-	ResponderModel string                 `json:"responder_model"`
-	JudgeModel     string                 `json:"judge_model"`
-	Tier           string                 `json:"tier"`
-	Tuples         []CorpusTupleResult    `json:"tuples"`
+	GeneratedAt    time.Time               `json:"generated_at"`
+	CorpusPath     string                  `json:"corpus_path"`
+	Backend        string                  `json:"backend"`
+	ResponderModel string                  `json:"responder_model"`
+	JudgeModel     string                  `json:"judge_model"`
+	Tier           string                  `json:"tier"`
+	Tuples         []CorpusTupleResult     `json:"tuples"`
 	ByRepo         map[string]VerdictTally `json:"by_repo"`
-	Totals         VerdictTally           `json:"totals"`
-	DurationMS     int64                  `json:"duration_ms"`
-	APICallCount   int                    `json:"api_call_count"`
+	Totals         VerdictTally            `json:"totals"`
+	DurationMS     int64                   `json:"duration_ms"`
+	APICallCount   int                     `json:"api_call_count"`
+	// LLM aggregates the Tier-3 rewriter activity across all tuples.
+	LLM compress.LLMRewriteStats `json:"llm"`
 }
 
 // VerdictTally counts pass/degraded/fail.
@@ -176,6 +181,7 @@ func RunCorpus(opts CorpusOptions) (CorpusReport, error) {
 			return report, fmt.Errorf("tuple %s: %w", t.ID, err)
 		}
 		report.Tuples = append(report.Tuples, fileResult)
+		report.LLM.Add(fileResult.LLM)
 		tally := report.ByRepo[t.Repo]
 		tally.Total++
 		switch fileResult.Verdict {
@@ -221,6 +227,7 @@ func runTuple(t Tuple, opts CorpusOptions, cache *corpusCache, responderModel st
 		BytesAfter:   compressed.BytesAfter,
 		TokensBefore: compressed.TokensBefore,
 		TokensAfter:  compressed.TokensAfter,
+		LLM:          compressed.LLM,
 	}
 
 	originalAnswer, originalCached, originalCalls, err := cachedAnswer(opts.Backend, original, t.Question, responderModel, "original", cache)
@@ -442,6 +449,10 @@ func WriteCorpusMarkdown(w io.Writer, report CorpusReport) error {
 	fmt.Fprintf(w, "Corpus: %s\nTier: %s\nResponder: %s/%s\nJudge model: %s\nTuples: %d  •  Pass rate: %.1f%%  •  API calls: %d  •  Duration: %dms\n\n",
 		report.CorpusPath, report.Tier, report.Backend, report.ResponderModel, report.JudgeModel,
 		report.Totals.Total, report.Totals.PassRate()*100, report.APICallCount, report.DurationMS)
+	if l := report.LLM; l.Active() {
+		fmt.Fprintf(w, "Tier-3 rewriter: %d considered · %d rewritten · %d skipped · %d failed · %d tokens saved · cache %dH/%dM\n\n",
+			l.SectionsConsidered, l.SectionsRewritten, l.SectionsSkipped, l.SectionsFailed, l.TokensSaved, l.CacheHits, l.CacheMisses)
+	}
 	fmt.Fprintln(w, "## Aggregate")
 	suspectCount := 0
 	for _, t := range report.Tuples {

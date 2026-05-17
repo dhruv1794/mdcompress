@@ -221,6 +221,10 @@ func compressCommand() *cobra.Command {
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "tokens (%s): %d -> %d (%d saved)\n", tokens.DefaultTokenizer().Name(), result.TokensBefore, result.TokensAfter, result.TokensSaved())
 			fmt.Fprintf(cmd.ErrOrStderr(), "bytes: %d -> %d (%d saved)\n", result.BytesBefore, result.BytesAfter, result.BytesSaved())
+			if l := result.LLM; l.Active() {
+				fmt.Fprintf(cmd.ErrOrStderr(), "tier-3 rewriter: %d considered, %d rewritten, %d skipped, %d failed, %d tokens saved (cache %dH/%dM)\n",
+					l.SectionsConsidered, l.SectionsRewritten, l.SectionsSkipped, l.SectionsFailed, l.TokensSaved, l.CacheHits, l.CacheMisses)
+			}
 			return nil
 		},
 	}

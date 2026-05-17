@@ -36,13 +36,7 @@ func (r *CodeBlockTruncate) Apply(ctx *Context) (ChangeSet, error) {
 		contentBytes := contentEnd - contentStart
 
 		if len(block.Content) > maxLines {
-			omitted := len(block.Content) - maxLines
-			start := block.Content[maxLines].Start
-			end := contentEnd
-			replacement := "[... " + strconv.Itoa(omitted) + " more lines ...]\n"
-			if len(replacement) < end-start {
-				addReplacement(&changes, start, end, replacement)
-			}
+			truncateBlockLines(&changes, block.Content, maxLines)
 			continue
 		}
 

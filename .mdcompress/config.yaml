@@ -1,0 +1,19 @@
+version: 1
+
+# Tier-3 LLM rewriter (M6). Opt-in only — `tier` is left at its default, so
+# this configures `--tier=llm` runs without changing default compression.
+#
+# Rewriter runs on the cheap model (failed rewrites fall back to the original,
+# so a weaker rewriter only costs savings, never faithfulness); the per-section
+# faithfulness judge runs on the stronger model so subtle fact drift is caught.
+llm:
+  backend: deepseek
+  model: deepseek-v4-flash
+  judge_backend: deepseek
+  judge_model: deepseek-v4-pro
+  api_key_env: DEEPSEEK_API_KEY
+  cache: true
+  threshold: 0.95
+  # lowered from the 200 default so the rewriter engages typical
+  # README/guide paragraphs (inline comments are not stripped by the parser)
+  min_section_tokens: 100

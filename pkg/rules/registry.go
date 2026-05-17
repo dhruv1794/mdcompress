@@ -29,6 +29,7 @@ var allRules = []Rule{
 	&CrossFileParagraphs{},
 	&CrossFileCodeBlocks{},
 	&CodeBlockTruncate{},
+	&PositionAwareBudget{},
 	&MultilangDedup{},
 	&FactorPhraseDictionary{},
 	&HedgingPhrases{},
@@ -55,10 +56,13 @@ var allRules = []Rule{
 //   - dedup-cross-section: complex heuristic that historically caused an OOM
 //     regression (now fixed) and only saves ~450 bytes corpus-wide; kept for
 //     opt-in experimentation but not worth the risk surface by default
+//   - position-aware-budget: genuinely lossy on code (tightens code-block
+//     truncation in the middle of long docs); opt-in until vetted
 func DefaultDisabled(name string) bool {
 	return name == "collapse-example-output" ||
 		name == "strip-boilerplate-sections" ||
-		name == "dedup-cross-section"
+		name == "dedup-cross-section" ||
+		name == "position-aware-budget"
 }
 
 // AllRules returns every rule in fixed execution order.
