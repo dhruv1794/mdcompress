@@ -1,7 +1,10 @@
 # Build artifacts
 /mdcompress
 /mdcompress.exe
+bin/
 dist/
+node_modules/
+docs/_site/
 
 # mdcompress runtime state (compressed mirrors are per-clone)
 .mdcompress/cache/
@@ -14,6 +17,7 @@ dist/
 
 # Personal Files
 
+CLAUDE.md
 docs/EXECUTION.md
 docs/INDEX.md
 docs/PROJECT-structure.md

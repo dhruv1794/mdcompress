@@ -32,6 +32,9 @@ func TestRegistryOrderInvariants(t *testing.T) {
 	assertBefore("compress-code-blocks", "dedup-cross-file-code-blocks")
 	assertBefore("dedup-cross-file-code-blocks", "truncate-large-code-blocks")
 	assertBefore("truncate-large-code-blocks", "dedup-multilang-examples")
+	// position-aware-budget tightens blocks already capped by the global
+	// truncator, so it must run after it.
+	assertBefore("truncate-large-code-blocks", "position-aware-budget")
 	assertBefore("compact-tables", "collapse-blank-lines")
 	// Frontmatter is the only structurally-required-first rule; document it.
 	if order["strip-frontmatter"] != 0 {

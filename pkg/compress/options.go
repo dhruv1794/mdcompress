@@ -63,6 +63,20 @@ type LLMRewriteStats struct {
 	CacheMisses        int
 }
 
+// Add accumulates another run's rewriter stats into s.
+func (s *LLMRewriteStats) Add(o LLMRewriteStats) {
+	s.SectionsConsidered += o.SectionsConsidered
+	s.SectionsRewritten += o.SectionsRewritten
+	s.SectionsSkipped += o.SectionsSkipped
+	s.SectionsFailed += o.SectionsFailed
+	s.TokensSaved += o.TokensSaved
+	s.CacheHits += o.CacheHits
+	s.CacheMisses += o.CacheMisses
+}
+
+// Active reports whether the Tier-3 rewriter ran (considered at least one section).
+func (s LLMRewriteStats) Active() bool { return s.SectionsConsidered > 0 }
+
 // Options controls a compression run.
 type Options struct {
 	Tier          Tier
@@ -72,7 +86,7 @@ type Options struct {
 	FilePath string
 	// CrossFile carries shared state for cross-file deduplication rules
 	// across multiple Compress() calls. Nil means no cross-file dedup.
-	CrossFile interface{}
+	CrossFile any
 	// CodeBlockMaxLines is the maximum content lines kept in large fenced
 	// code blocks before aggressive truncation. Zero uses the rule default.
 	CodeBlockMaxLines int

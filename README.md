@@ -2,10 +2,11 @@
 
 mdcompress strips fluff from README files and agent-context bundles
 (AGENTS.md, CLAUDE.md, scraped docs) into a hidden token-optimized mirror.
-On the current public benchmark corpus, top-level READMEs shrink 17-31%
-(28.5% average) while full docs trees shrink 1.8-5.3% (3.3% average).
+On the 20-repo benchmark corpus, Tier 2 shrinks full markdown trees ~14%
+overall — from ~11% on code-dense repos up to 30-53% on docs-heavy ones —
+and top-level READMEs ~13%. See [`BENCHMARKS.md`](BENCHMARKS.md).
 
-Status: **v3.2 (Tier-2 aggressive)** with 28 rules, faithfulness audit, MCP server,
+Status: **v3.2 (Tier-2 aggressive)** with 35 rules, faithfulness audit, MCP server,
 LLM rewriter, plugin API, and interactive web test page.
 
 Live benchmarks + test page: **[dhruv1794.github.io/mdcompress](https://dhruv1794.github.io/mdcompress/)**
@@ -40,14 +41,17 @@ mdcompress web       # launch interactive test UI (local)
 
 ## Rules
 
-28 deterministic rules run in fixed order. `strip-boilerplate-sections` and
-`collapse-example-output` are opt-in even at Tier-2.
+35 deterministic rules run in fixed order. Four — `dedup-cross-section`,
+`strip-boilerplate-sections`, `collapse-example-output`, and
+`position-aware-budget` — ship opt-in even when their tier is active.
 
 ### Safe (Tier-1)
 
 | Rule | What it does |
 |------|-------------|
 | `strip-frontmatter` | Remove YAML/TOML frontmatter (`---` / `+++` blocks) |
+| `normalize-unicode` | Normalize smart quotes, dashes, ellipses, NBSP, and invisible characters to ASCII (code spans preserved) |
+| `strip-url-tracking-params` | Remove tracking query parameters (`utm_*`, etc.) from links |
 | `strip-setext-headers` | Convert setext-style headings (`====`/`----`) to ATX (`#`/`##`) |
 | `strip-html-comments` | Remove `<!-- ... -->` blocks |
 | `compress-code-blocks` | Strip shell prompts, config comments from fenced code blocks |
@@ -57,6 +61,8 @@ mdcompress web       # launch interactive test UI (local)
 | `strip-horizontal-rules` | Remove `---` / `***` / `___` horizontal rule lines |
 | `strip-toc` | Remove auto-generated table-of-contents blocks |
 | `strip-trailing-cta` | Remove star/follow/sponsor sections at doc end |
+| `compress-changelogs` | Compact changelog/release-note sections to bullet summaries |
+| `compact-tables` | Compact pipe tables by removing delimiter rows and extra whitespace |
 | `collapse-blank-lines` | Collapse 3+ blank lines to 2 |
 
 ### Aggressive (Tier-2)
@@ -65,21 +71,24 @@ mdcompress web       # launch interactive test UI (local)
 |------|-------------|
 | `strip-html-wrappers` | Remove decorative `<div>`, `<p align>`, `<small>`, `<details>` wrappers |
 | `strip-cross-file-dupes` | Replace exact duplicate sections shared across repo files |
+| `factor-cross-file-paragraphs` | Replace long prose paragraphs repeated across repo files with a back-reference |
 | `dedup-cross-file-code-blocks` | Replace repeated fenced code blocks shared across repo files |
 | `truncate-large-code-blocks` | Truncate oversized fenced code blocks after a configurable line limit |
 | `dedup-multilang-examples` | Collapse multi-language code examples that are semantically identical |
-| `strip-marketing-prose` | Remove "blazing fast", "battle-tested", etc. |
+| `factor-phrase-dictionary` | Factor repeated multi-word phrases into a short glossary preamble |
 | `strip-hedging-phrases` | Replace "it is worth noting that", "in order to", etc. |
-| `dedup-cross-section` | Remove intro sentences duplicated in body sections |
+| `dedup-cross-section` | Remove intro sentences duplicated in body sections **(opt-in)** |
 | `strip-benchmark-prose` | Remove prose that only narrates an adjacent table |
 | `strip-admonition-prefixes` | Remove `**Note:**`, `**Warning:**`, `**Tip:**` prefixes |
 | `strip-cross-references` | Remove "See the [X] section for details" type phrases |
+| `strip-mkdocs-includes` | Remove MkDocs/PyMdown snippet directives (`--8<--`, `{!...!}`) |
+| `strip-edit-page-footers` | Remove "edit this page" / "last updated" / "view source" trailers |
+| `compress-api-parameter-trivia` | Remove padding rows from MkDocStrings-style API parameter references |
+| `strip-boilerplate-sections` | Remove "Contributing"/"License"/"Support" sections that just link to a dedicated file **(opt-in)** |
 | `strip-verification-boilerplate` | Remove "If valid, the output is:" type verification chitchat |
 | `strip-seo-chaff` | Remove breadcrumbs, prev/next links, "Was this helpful?", "Edit on GitHub" |
-| `compress-changelogs` | Compact changelog/release-note sections to bullet summaries |
-| `compact-tables` | Compact pipe tables by removing delimiter rows and extra whitespace |
-| `strip-boilerplate-sections` | Remove "Contributing"/"License"/"Support" sections that just link to a dedicated file **(opt-in)** |
 | `collapse-example-output` | Remove `--help` output blocks **(opt-in)** |
+| `position-aware-budget` | Truncate code blocks in the middle of long documents more aggressively than head/tail **(opt-in)** |
 
 ## Web UI
 
@@ -123,7 +132,7 @@ mdcompress eval --repo=.                       # evaluate all markdown
 mdcompress eval --repo=docs --rule=strip-toc   # isolate one rule
 ```
 
-Supports Ollama (default), Anthropic, and OpenAI judge backends.
+Supports Ollama (default), Anthropic, OpenAI, DeepSeek, and Bedrock judge backends.
 
 ## Plugin API
 

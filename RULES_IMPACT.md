@@ -32,7 +32,7 @@ Conversely, a rule is **load-bearing** when removing it breaks ≥ 1 previously-
 ## Operational notes
 
 - Eval runs are cached on disk under `.mdcompress/cache/eval/`. Cache keys: `sha256(doc, question, model)` for original-side answers (stable across rule configs); `sha256(compressed, question, model)` for compressed-side; `sha256(doc, compressed, question, expected, judge_model)` for verdicts. Per-rule sweeps re-run only the compressed-side answers and verdicts whose compressed bytes actually change vs. baseline.
-- The default backend for the curated harness is DeepSeek (`deepseek-chat`) on both responder and judge. Self-judging is a known evaluator-bias risk; cross-backend judge support is a planned extension when a second funded key is available.
+- The curated harness runs on DeepSeek. Recent evals use `deepseek-v4-flash` for the responder and verdict, and `deepseek-v4-pro` as the Tier-3 per-section faithfulness judge — the legacy `deepseek-chat` id is retired after 2026-07-24. Self-judging within one model family is a known evaluator-bias risk; a cross-family judge (e.g. Claude) is a planned extension.
 - Default threshold in `make eval` is 0.90 — an honest reflection of where DeepSeek-as-responder lands on the current 34-tuple corpus, not the promotion bar above. Promotion decisions read the markdown scoreboard, not the make exit code.
 
 ## Reports produced by `make eval`

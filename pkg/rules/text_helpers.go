@@ -2,6 +2,7 @@ package rules
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -105,6 +106,23 @@ func addReplacement(changes *ChangeSet, start, end int, replacement string) {
 	})
 	changes.Stats.NodesAffected++
 	changes.Stats.BytesSaved += end - start - len(replacement)
+}
+
+// truncateBlockLines replaces the lines of a fenced code block's content
+// beyond keepLines with a single "[... N more lines ...]" marker, when that
+// actually saves bytes. content is the block's body lines (between the
+// fences). A no-op when content already fits within keepLines.
+func truncateBlockLines(changes *ChangeSet, content []sourceLine, keepLines int) {
+	if len(content) <= keepLines {
+		return
+	}
+	omitted := len(content) - keepLines
+	start := content[keepLines].Start
+	end := content[len(content)-1].End
+	replacement := "[... " + strconv.Itoa(omitted) + " more lines ...]\n"
+	if len(replacement) < end-start {
+		addReplacement(changes, start, end, replacement)
+	}
 }
 
 func wordCount(text string) int {

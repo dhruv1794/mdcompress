@@ -93,11 +93,18 @@ Use --rule to isolate one registered rule by disabling all others for the run.`,
 				return err
 			}
 			model = resolvedEvalModel(backendName, model)
+			// At tier=llm the curated run must compress with the Tier-3
+			// rewriter attached, otherwise compress.Compress silently
+			// degrades to Tier-2 and the eval never exercises the rewriter.
+			rewriter, err := buildLLMRewriter(parsedTier, projectCfg.LLM)
+			if err != nil {
+				return err
+			}
 			if strings.TrimSpace(corpusPath) != "" {
 				if corpusPerRule {
-					return runCuratedCorpusPerRule(cmd, corpusPath, corpusRepoRoot, corpusFilter, corpusJudgeModel, corpusCacheDir, corpusNoCache, parsedTier, backend, corpusPerRuleOut, corpusPerRuleJSON)
+					return runCuratedCorpusPerRule(cmd, corpusPath, corpusRepoRoot, corpusFilter, corpusJudgeModel, corpusCacheDir, corpusNoCache, parsedTier, backend, rewriter, corpusPerRuleOut, corpusPerRuleJSON)
 				}
-				return runCuratedCorpus(cmd, corpusPath, corpusRepoRoot, corpusFilter, corpusJudgeModel, corpusCacheDir, corpusNoCache, parsedTier, threshold, backend, jsonOut, markdownOut)
+				return runCuratedCorpus(cmd, corpusPath, corpusRepoRoot, corpusFilter, corpusJudgeModel, corpusCacheDir, corpusNoCache, parsedTier, threshold, backend, rewriter, jsonOut, markdownOut)
 			}
 			report, err := mdeval.Run(mdeval.Options{
 				Repo:            repo,
@@ -158,7 +165,7 @@ Use --rule to isolate one registered rule by disabling all others for the run.`,
 	return cmd
 }
 
-func runCuratedCorpusPerRule(cmd *cobra.Command, corpusPath, repoRoot, filter, judgeModel, cacheDir string, noCache bool, tier compress.Tier, backend mdeval.Backend, perRuleOut, perRuleJSON string) error {
+func runCuratedCorpusPerRule(cmd *cobra.Command, corpusPath, repoRoot, filter, judgeModel, cacheDir string, noCache bool, tier compress.Tier, backend mdeval.Backend, rewriter compress.LLMRewriter, perRuleOut, perRuleJSON string) error {
 	if strings.TrimSpace(judgeModel) == "" {
 		judgeModel = "(same as responder)"
 	}
@@ -166,7 +173,7 @@ func runCuratedCorpusPerRule(cmd *cobra.Command, corpusPath, repoRoot, filter, j
 		CorpusPath: corpusPath,
 		RepoRoot:   repoRoot,
 		Filter:     filter,
-		Compress:   compress.Options{Tier: tier},
+		Compress:   compress.Options{Tier: tier, LLMRewriter: rewriter},
 		Backend:    backend,
 		JudgeModel: judgeModel,
 		CacheDir:   cacheDir,
@@ -211,7 +218,7 @@ func runCuratedCorpusPerRule(cmd *cobra.Command, corpusPath, repoRoot, filter, j
 	return nil
 }
 
-func runCuratedCorpus(cmd *cobra.Command, corpusPath, repoRoot, filter, judgeModel, cacheDir string, noCache bool, tier compress.Tier, threshold float64, backend mdeval.Backend, jsonOut, markdownOut string) error {
+func runCuratedCorpus(cmd *cobra.Command, corpusPath, repoRoot, filter, judgeModel, cacheDir string, noCache bool, tier compress.Tier, threshold float64, backend mdeval.Backend, rewriter compress.LLMRewriter, jsonOut, markdownOut string) error {
 	if strings.TrimSpace(judgeModel) == "" {
 		judgeModel = "(same as responder)"
 	}
@@ -219,7 +226,7 @@ func runCuratedCorpus(cmd *cobra.Command, corpusPath, repoRoot, filter, judgeMod
 		CorpusPath: corpusPath,
 		RepoRoot:   repoRoot,
 		Filter:     filter,
-		Compress:   compress.Options{Tier: tier},
+		Compress:   compress.Options{Tier: tier, LLMRewriter: rewriter},
 		Backend:    backend,
 		JudgeModel: judgeModel,
 		CacheDir:   cacheDir,
