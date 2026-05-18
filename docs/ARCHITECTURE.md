@@ -102,6 +102,8 @@ Line rules scan source bytes directly. AST rules receive a freshly parsed goldma
 | Name | Tier | Removes |
 |------|------|---------|
 | `strip-frontmatter` | safe | YAML/TOML frontmatter at document start |
+| `normalize-unicode` | safe | Normalize smart quotes, dashes, ellipses, NBSP, invisible chars to ASCII (code spans preserved) |
+| `strip-url-tracking-params` | safe | Tracking query parameters (`utm_*`, etc.) from links |
 | `strip-setext-headers` | safe | Convert setext-style headings to ATX |
 | `strip-html-comments` | safe | `<!-- ... -->` blocks |
 | `compress-code-blocks` | safe | Shell prompts, config comments, imports from fenced code blocks |
@@ -113,24 +115,29 @@ Line rules scan source bytes directly. AST rules receive a freshly parsed goldma
 | `strip-toc` | safe | Generated table-of-contents blocks |
 | `strip-trailing-cta` | safe | Social/star/sponsor sections near document end |
 | `strip-cross-file-dupes` | aggressive | Exact duplicate sections shared across files |
+| `factor-cross-file-paragraphs` | aggressive | Long prose paragraphs repeated across files → back-reference |
 | `dedup-cross-file-code-blocks` | aggressive | Fenced code blocks duplicated across files |
 | `truncate-large-code-blocks` | aggressive | Oversized fenced code blocks after `code_blocks.max_lines` |
+| `position-aware-budget` | aggressive | Tighter code-block truncation in the middle of long documents **(opt-in)** |
 | `dedup-multilang-examples` | aggressive | Multi-language code examples that are semantically identical |
-| `strip-marketing-prose` | aggressive | "blazing fast", "production-ready", decoration phrases |
+| `factor-phrase-dictionary` | aggressive | Repeated multi-word phrases factored into a short glossary preamble |
 | `strip-hedging-phrases` | aggressive | "it is worth noting that", "in order to", etc. |
-| `dedup-cross-section` | aggressive | Duplicate facts repeated across sections |
+| `dedup-cross-section` | aggressive | Duplicate facts repeated across sections **(opt-in)** |
 | `strip-benchmark-prose` | aggressive | Prose that just narrates an adjacent table |
 | `strip-admonition-prefixes` | aggressive | `**Note:**`, `**Warning:**`, `**Tip:**` prefixes |
 | `strip-cross-references` | aggressive | "See the [X] section for details" type phrases |
+| `strip-mkdocs-includes` | aggressive | MkDocs/PyMdown snippet directives (`--8<--`, `{!...!}`) |
+| `strip-edit-page-footers` | aggressive | "edit this page" / "last updated" / "view source" trailers |
+| `compress-api-parameter-trivia` | aggressive | Padding rows from MkDocStrings-style API parameter references |
 | `strip-boilerplate-sections` | aggressive | Contributing/License/Support sections redirecting to dedicated files **(opt-in)** |
 | `strip-verification-boilerplate` | aggressive | "If valid, the output is:" type verification chitchat |
 | `strip-seo-chaff` | aggressive | Breadcrumbs, prev/next links, "Was this helpful?", "Edit on GitHub" |
-| `compress-changelogs` | aggressive | Changelog/release-note sections → bullet summaries |
+| `compress-changelogs` | safe | Changelog/release-note sections → bullet summaries |
 | `collapse-example-output` | aggressive | `--help`-style command-output blocks **(opt-in)** |
-| `compact-tables` | aggressive | Pipe table delimiter rows and extra whitespace |
+| `compact-tables` | safe | Pipe table delimiter rows and extra whitespace |
 | `collapse-blank-lines` | safe | Excessive blank lines outside fenced code blocks |
 
-Rules that are `DefaultDisabled` (currently `collapse-example-output` and `strip-boilerplate-sections`) must be explicitly opted in via `--enable-rule` or config even when their tier is active.
+Rules that are `DefaultDisabled` (currently `position-aware-budget`, `dedup-cross-section`, `strip-boilerplate-sections`, and `collapse-example-output`) must be explicitly opted in via `--enable-rule` or config even when their tier is active.
 
 ## Cache and manifest
 
